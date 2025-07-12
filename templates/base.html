@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{% block title %}Good Food Delivery{% endblock %}</title>
+    <link rel="stylesheet" href="static/styles.css">
+    <link rel="icon" href="{{ url_for('static', filename='icon.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.png') }}">
+    <meta name="theme-color" content="#ffffff">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=no">
+    <style>
+        .footer-button {
+            color: white; 
+            text-decoration: none; 
+            margin: 0 0.5rem; 
+            padding: 0.5rem 1rem; 
+            background: #be4272; 
+            border-radius: 4px;
+            display: inline-block;
+        }
+        .footer-button:hover {
+            background: #a0355f;
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <!-- Header -->
+    <header style="background: linear-gradient(135deg, #be4272 0%, #2a366b 100%); color: white; padding: 1rem; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <div style="display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto;">
+            <div style="flex: 1;"></div>
+            <div style="flex: 2; text-align: center;">
+                <img src="{{ url_for('static', filename='gf.png') }}" alt="Good Food" style="max-width: 200px; margin-bottom: 0.5rem;">
+                <h1 style="margin: 0; font-size: 1.5rem;">{% block header_title %}Good Food Delivery{% endblock %}</h1>
+            </div>
+            <div style="flex: 1; text-align: right;">
+                {% if session.get('is_admin') %}
+                    <span style="font-size: 0.9rem; opacity: 0.9;">Admin Mode</span>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main style="min-height: calc(100vh - 140px); padding: 20px;">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer style="background: #333; color: white; text-align: center; padding: 1rem; margin-top: auto;">
+        <div style="max-width: 1200px; margin: 0 auto;">
+            <!-- Navigation Buttons -->
+            <div style="margin-bottom: 1rem;">
+                <a href="/" class="footer-button">Home</a>
+                {% if session.get('is_admin') %}
+                    <a href="/chart" class="footer-button">View Owings</a>
+                    <a href="/products" class="footer-button">Manage Products</a>
+                    <a href="/manage" class="footer-button">Manage Sites</a>
+                    <a href="/profit" class="footer-button">View Profits</a>
+                {% else %}
+                    <a href="/admin" class="footer-button">Admin Login</a>
+                {% endif %}
+            </div>
+            <p style="margin: 0; font-size: 0.9rem;">
+                {% if session.get('is_admin') %}
+                    <form method="POST" action="/logout" style="display: inline;">
+                        <button type="submit" style="background: none; border: none; color: #be4272; text-decoration: none; cursor: pointer; font-size: 0.9rem;">Logout</button>
+                    </form>
+                {% else %}
+                    <a href="/admin" style="color: #be4272; text-decoration: none;">Admin Login</a>
+                {% endif %}
+            </p>
+        </div>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html> 

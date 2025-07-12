@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Profit Table{% endblock %}
+
+{% block header_title %}Collected Orders (Profit Table){% endblock %}
+
+{% block extra_head %}
+<style>
+    table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #f0f0f0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center;">
+    <table>
+        <thead>
+            <tr>
+                <th>Employee</th>
+                <th>Items</th>
+                <th>Total Paid</th>
+                <th>Date Cleared</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for emp_id, order_id, items, total_paid, date_cleared in profits %}
+            <tr>
+                <td>{{ emp_names.get(emp_id) or ('Employee #' ~ emp_id) }}</td>
+                <td>
+                  <ul style="list-style: none; padding-left: 0; margin: 0;">
+                  {% for item in items.split(",") %}
+                    {% set item = item.strip() %}
+                    {% if ":" in item and ";" in item %}
+                      {% set name_price = item.split(";")[0] %}
+                      {% set qty = item.split(";")[1].strip() %}
+                      {% set name = name_price.split(":")[0].strip() %}
+                      {% set price = name_price.split(":")[1].strip() %}
+                      <li>{{ name }} @ ${{ price }} × {{ qty }}</li>
+                    {% else %}
+                      <li>{{ item }}</li>
+                    {% endif %}
+                  {% endfor %}
+                  </ul>
+                </td>
+                <td>${{ total_paid }}</td>
+                <td>{{ date_cleared }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5"><em>No cleared orders yet.</em></td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %} 

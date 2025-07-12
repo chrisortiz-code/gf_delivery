@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Sites & Employees{% endblock %}
+
+{% block header_title %}Manage Sites & Employees{% endblock %}
+
+{% block extra_head %}
+<style>
+    .site-section { margin-bottom: 2rem; border: 2px solid #be4272; border-radius: 8px; padding: 1rem; }
+    .site-title { font-size: 1.2rem; font-weight: bold; color: #be4272; margin-bottom: 0.5rem; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background: #f0f0f0; }
+    .actions { white-space: nowrap; }
+    .add-btn, .edit-btn, .delete-btn { margin: 0 2px; padding: 4px 10px; border-radius: 4px; border: none; cursor: pointer; }
+    .add-btn { background: #5a866b; color: white; }
+    .edit-btn { background: #318a52; color: white; }
+    .delete-btn { background: #e74c3c; color: white; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center;">
+    {% for site in sites %}
+    <div class="site-section">
+        <form method="POST" action="/update_site" style="display: inline;">
+            <input type="hidden" name="site_id" value="{{ site.id }}">
+            <div class="site-title">
+                <div style="margin-bottom: 0.5rem;">
+                    <label style="font-weight: bold;">Location:</label>
+                    <input type="text" name="location" value="{{ site.location }}" style="margin-left: 0.5rem; padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
+                    <label style="font-weight: bold; margin-left: 1rem;">Maestro:</label>
+                    <input type="text" name="maestro" value="{{ site.maestro }}" style="margin-left: 0.5rem; padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
+                    <button type="submit" class="edit-btn" style="margin-left: 0.5rem;">Update</button>
+                </div>
+            </div>
+        </form>
+        <form method="POST" action="/delete_site" style="display: inline;">
+            <input type="hidden" name="site_id" value="{{ site.id }}">
+            <button type="submit" class="delete-btn" style="margin-left: 0.5rem;" onclick="return confirm('Are you sure you want to delete this site?')">Delete Site</button>
+        </form>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Employee Name</th>
+                    <th class="actions">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for emp in site.employees %}
+                <tr>
+                    <td>
+                        <input type="text" id="emp_name_{{ emp.id }}" value="{{ emp.name }}" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
+                    </td>
+                    <td class="actions">
+                        <form method="POST" action="/update_employee" style="display: inline;">
+                            <input type="hidden" name="employee_id" value="{{ emp.id }}">
+                            <input type="hidden" name="site_id" value="{{ site.id }}">
+                            <input type="hidden" name="employee_name" id="emp_name_hidden_{{ emp.id }}">
+                            <button type="submit" class="edit-btn" onclick="document.getElementById('emp_name_hidden_{{ emp.id }}').value = document.getElementById('emp_name_{{ emp.id }}').value;">Update</button>
+                        </form>
+                        <form method="POST" action="/delete_employee" style="display: inline;">
+                            <input type="hidden" name="employee_id" value="{{ emp.id }}">
+                            <button type="submit" class="delete-btn" onclick="return confirm('Are you sure you want to delete this employee?')">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="2"><em>No employees for this site.</em></td></tr>
+                {% endfor %}
+                <!-- Empty row for adding new employee -->
+                <tr>
+                    <form method="POST" action="/add_employee">
+                        <input type="hidden" name="site_id" value="{{ site.id }}">
+                        <td>
+                            <input type="text" name="employee_name" placeholder="Enter new employee name" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 4px;" required>
+                        </td>
+                        <td class="actions">
+                            <button type="submit" class="add-btn">Add</button>
+                        </td>
+                    </form>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    {% endfor %}
+    
+    <!-- New Site Section -->
+    <div class="site-section">
+        <form method="POST" action="/add_site" style="display: inline;">
+            <div class="site-title">
+                <div style="margin-bottom: 0.5rem;">
+                    <label style="font-weight: bold;">Location:</label>
+                    <input type="text" name="location" value="Set Location" style="margin-left: 0.5rem; padding: 4px; border: 1px solid #ccc; border-radius: 4px;" required>
+                    <label style="font-weight: bold; margin-left: 1rem;">Maestro:</label>
+                    <input type="text" name="maestro" value="Boss" style="margin-left: 0.5rem; padding: 4px; border: 1px solid #ccc; border-radius: 4px;" required>
+                    <button type="submit" class="add-btn" style="margin-left: 0.5rem;">Add Site</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %} 

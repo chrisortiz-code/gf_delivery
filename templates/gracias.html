@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Gracias{% endblock %}
+
+{% block header_title %}Gracias por tu compra - {{ employee_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .receipt {margin: 20px auto; max-width: 300px;  text-align: left; border-top: 2px dotted #999; padding-top:10px;}
+    .line { display: flex; justify-content: space-between; margin-bottom: 5px;}
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center;">
+    <h3>Gracias por tu compra - {{ employee_name }}</h3>
+        {% set ns = namespace(total=0) %}
+        {%for name, qty, subtotal in receipt  %}
+        <div class = "line">
+            <span> {{name}} x{{qty}}</span>
+            <span>${{ subtotal}}</span>
+        </div>
+        {% set ns.total = ns.total + subtotal %}
+        {% endfor%}
+        <div class = "line" style = "border-top: 5px dotted #aaa; padding-top:5px;">
+            <strong>Total:</strong><strong> ${{ ns.total }}</strong>
+        </div>
+        
+        <!-- Signature Section -->
+        <h3 style="margin-top:2em;">Signature</h3>
+        <div style="display:flex; flex-direction:column; align-items:center;">
+            <canvas id="signature-canvas" width="500" height="200" style="border:2px solid #be4272; background:#fff; border-radius:8px; touch-action:none; margin-bottom:1em;"></canvas>
+            <button type="button" onclick="clearSignature()">Clear Signature</button>
+            
+            <div style="display:flex; gap:1em; margin-top:1em;">
+                <form id="order-form" action="/submit_order" method="POST">
+                    <input type="hidden" id="signature-data" name="signature_data">
+                    <button type="submit" onclick="submitOrder()" style="background:#4CAF50; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer;">Complete Order</button>
+                </form>
+                
+                <form action="/">
+                    <button type="submit" style="background:#f44336; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer;">Cancel Transaction</button>
+                </form>
+            </div>
+        </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const canvas = document.getElementById('signature-canvas');
+const ctx = canvas.getContext('2d');
+let drawing = false;
+let lastX = 0, lastY = 0;
+
+function getXY(e) {
+    if (e.touches && e.touches.length === 1) {
+        const rect = canvas.getBoundingClientRect();
+        return [e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top];
+    } else {
+        return [e.offsetX, e.offsetY];
+    }
+}
+
+function startDraw(e) {
+    drawing = true;
+    [lastX, lastY] = getXY(e);
+}
+function draw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const [x, y] = getXY(e);
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    [lastX, lastY] = [x, y];
+}
+function stopDraw() {
+    drawing = false;
+}
+function clearSignature() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function submitOrder() {
+    // Convert canvas to data URL and store in hidden input
+    const signatureData = canvas.toDataURL();
+    document.getElementById('signature-data').value = signatureData;
+}
+
+// Mouse events
+canvas.addEventListener('mousedown', startDraw);
+canvas.addEventListener('mousemove', draw);
+canvas.addEventListener('mouseup', stopDraw);
+canvas.addEventListener('mouseleave', stopDraw);
+// Touch events
+canvas.addEventListener('touchstart', startDraw);
+canvas.addEventListener('touchmove', draw);
+canvas.addEventListener('touchend', stopDraw);
+canvas.addEventListener('touchcancel', stopDraw);
+</script>
+{% endblock %}

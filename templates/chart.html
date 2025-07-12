@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}Order & Payment History{% endblock %}
+
+{% block header_title %}Order & Payment History{% endblock %}
+
+{% block extra_head %}
+<style>
+  table {margin:0 auto; max-width:auto}
+  .content * { color:black; }
+  table{ border-collapse: collapse; width: 85%; }
+  th, td { border: 1px solid #181818; }
+  th, button {background: #ccc ; color:#181818 }
+  .delete-btn{ background-color:#e74c3c; color:white; border:none; border-radius:50%; width:24px;height:24px; font-size: 16px; line-height:0; cursor:pointer; text-align:center; padding:0; }
+  .delete-btn:hover{background-color: #c0392b;}
+  .filter-form { margin: 2em auto; text-align: center; }
+  .filter-form label { margin-right: 1em; }
+  .filter-form select { margin-left: 1em; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="text-align:center" class="content">
+{% if selected_maestro %}
+  <p style="margin-top: 0.5em; font-style: italic; color: #666;">Maestro: {{ selected_maestro }}</p>
+{% endif %}
+<form class="filter-form" method="get" action="/chart">
+  <div>
+    <label><b>Select Location:</b></label>
+    {% for site_id, location,_ in sites %}
+      <label style="margin-right: 1em;">
+        <input type="radio" name="site_id" value="{{ site_id }}" {% if site_id == selected_site %}checked{% endif %} onchange="this.form.submit()"> {{ location }}
+      </label>
+    {% endfor %}
+  </div>
+  <div style="margin-top:1em;">
+    <label for="employee_id"><b>Select Employee:</b></label>
+    <select name="employee_id" id="employee_id" onchange="this.form.submit()" {% if not selected_site %}disabled{% endif %}>
+      <option value="">-- Select Employee --</option>
+      {% for emp_id, emp_site_id, emp_name in filtered_employees %}
+        <option value="{{ emp_id }}" {% if emp_id|string == selected_employee %}selected{% endif %}>{{ emp_name or ('Employee #' ~ emp_id) }}</option>
+      {% endfor %}
+      {% if selected_site %}
+        <option value="all" {% if show_all or (not selected_employee) %}selected{% endif %}>All Employees</option>
+      {% endif %}
+    </select>
+  </div>
+</form>
+
+{% if orders or payments %}
+  <h4 style="margin-top:2em;">Orders & Payments</h4>
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Employee</th>
+        <th>Date</th>
+        <th>Items / Note</th>
+        <th>Total / Amount</th>
+        <th>Signature</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in all_entries %}
+        <tr{% if entry.type == 'payment' %} style="background:#ffeaea;"{% elif entry.type == 'order' %} style="background:#eaf2ff;"{% endif %}>
+          <td>{{ entry.type|capitalize }}</td>
+          <td>{{ entry.employee_name }}</td>
+          <td>{{ entry.date }}</td>
+          <td>
+            {% if entry.type == 'order' %}
+              <ul style="list-style: none; padding-left: 0; margin: 0;">
+                {% for item in entry.parsed_items %}
+                  <li>{{ item.name }} @ ${{ item.price }} × {{ item.qty }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              {{ entry.note or '' }}
+            {% endif %}
+          </td>
+          <td>
+            {% if entry.type == 'order' %}
+              ${{ entry.total }}
+            {% else %}
+              -${{ entry.amount }}
+            {% endif %}
+          </td>
+          <td>
+            {% if entry.type == 'order' and entry.signature %}
+              <img src="{{ entry.signature }}" alt="Signature" style="max-width: 80px; max-height: 40px; border: 1px solid #ccc;">
+            {% elif entry.type == 'order' %}
+              <em>No signature</em>
+            {% else %}
+              <em>-</em>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      <tr style="font-weight:bold; border-top:2px solid #181818;">
+        <td colspan="5" style="text-align:right;">Debit (Orders)</td>
+        <td>${{ order_total }}</td>
+      </tr>
+      <tr style="font-weight:bold;">
+        <td colspan="5" style="text-align:right;">Credit (Payments)</td>
+        <td>-${{ payment_total }}</td>
+      </tr>
+      <tr style="font-weight:bold; background:#f0f0f0;">
+        <td colspan="5" style="text-align:right;">Owed</td>
+        <td>${{ net_total }}</td>
+      </tr>
+    </tbody>
+  </table>
+{% else %}
+  <p style="color:gray;">No orders or payments found for this selection.</p>
+{% endif %}
+
+{% if session.get('is_admin') and selected_employee %}
+  <form method="post" style="margin-top:2em; border:1px solid #ccc; padding:1em; border-radius:8px; background:#f9f9f9; max-width:400px; margin-left:auto; margin-right:auto;">
+    <h4>Receive Payment{% if selected_employee == 'all' %} (All Employees at this Site){% endif %}</h4>
+    <input type="hidden" name="site_id" value="{{ selected_site }}">
+    <input type="hidden" name="employee_id" value="{{ selected_employee }}">
+    <input type="hidden" name="payment_key" value="{{ payment_key }}">
+    <div style="margin-bottom:1em;">
+      <label for="amount">Amount:</label>
+      <input type="number" name="amount" id="amount" min="1" required style="width:100%; padding:6px;">
+    </div>
+    <div style="margin-bottom:1em;">
+      <label for="note">Note (optional):</label>
+      <input type="text" name="note" id="note" style="width:100%; padding:6px;">
+    </div>
+    <button type="submit" style="background:#5a866b; color:white; padding:8px 18px; border:none; border-radius:6px;">Add Payment</button>
+  </form>
+{% endif %}
+
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Enable employee dropdown when a site is selected
+  document.addEventListener('DOMContentLoaded', function() {
+    const siteRadios = document.querySelectorAll('input[name="site_id"]');
+    const empSelect = document.getElementById('employee_id');
+    function updateEmpDisabled() {
+      let checked = false;
+      siteRadios.forEach(r => { if (r.checked) checked = true; });
+      empSelect.disabled = !checked;
+    }
+    siteRadios.forEach(r => r.addEventListener('change', updateEmpDisabled));
+    updateEmpDisabled();
+  });
+</script>
+{% endblock %}

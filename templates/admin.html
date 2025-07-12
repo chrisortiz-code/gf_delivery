@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Login{% endblock %}
+
+{% block header_title %}Admin Login{% endblock %}
+
+{% block extra_head %}
+<style>
+    input[type="password"] {
+        padding: 10px;
+        font-size: 16px;
+        margin-bottom: 10px;
+    }
+
+    button {
+        padding: 10px 20px;
+        font-size: 16px;
+        background-color: #be4272;
+        color: white;
+        border: none;
+        border-radius: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="text-align: center;">
+    <h2>Admin Login</h2>
+    {% if error %}
+    <p style="color:red;">{{ error }}</p>
+    {% endif %}
+    <form method="post">
+        <input type="password" name="password" id="admin-password" placeholder="Enter password">
+        <button type="button" id="toggle-password" style="margin-left:8px; background:#ccc; color:#222;">View</button><br>
+        <button type="submit">Login</button>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const pwInput = document.getElementById('admin-password');
+const toggleBtn = document.getElementById('toggle-password');
+toggleBtn.addEventListener('click', function() {
+    if (pwInput.type === 'password') {
+        pwInput.type = 'text';
+        toggleBtn.textContent = 'Hide';
+    } else {
+        pwInput.type = 'password';
+        toggleBtn.textContent = 'View';
+    }
+});
+</script>
+{% endblock %}
