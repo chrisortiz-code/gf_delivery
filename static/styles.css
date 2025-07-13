@@ -1,0 +1,27 @@
+body{
+    background:linear-gradient(to bottom, rgb(223, 226, 252), #e9e8e8, white, white);
+    background-attachment: fixed;
+    min-height: 100vh;
+
+}
+
+button {
+    margin-top: 20px;
+    padding: 12px 24px;
+    font-size: 18px;
+    background-color: #be4272;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+button:hover {
+    background-color: #a53761;
+}
+
+button:active {
+    transform: scale(0.97);
+}
