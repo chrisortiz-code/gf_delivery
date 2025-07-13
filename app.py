@@ -1,13 +1,14 @@
-from flask import Flask, render_template, session, render_template_string, request, redirect
+from flask import Flask, render_template, session, render_template_string, request, redirect, flash, get_flashed_messages
 import sqlite3
 from datetime import date, timedelta, datetime
 import re
 import random
 import string
-
+from pathlib import Path
 import os
 from werkzeug.utils import secure_filename
-
+from werkzeug.utils import secure_filename
+import re
 
 app = Flask(__name__)
 DB_PATH = "Databases/good_food.db"
@@ -20,10 +21,30 @@ if not os.path.exists(UPLOAD_FOLDER):
 def get_products():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT name, price, image FROM products")
+    cursor.execute("SELECT name, price, image FROM products ORDER BY position ASC, id ASC")
     products = cursor.fetchall()
     conn.close()
     return products
+
+def smart_capitalize(name):
+    # Remove special characters except spaces and slashes
+    name = re.sub(r'[^\w\s/]', ' ', name)
+    def cap_word(word, is_first):
+        if is_first or len(word) > 3:
+            return word.capitalize()
+        return word.lower()
+    words = re.split(r'(\s+)', name)  # Keep spaces
+    result = []
+    first = True
+    for w in words:
+        if w.strip() == '':
+            result.append(w)
+        else:
+            result.append(cap_word(w, first))
+            if w.strip():
+                first = False
+    return ''.join(result).strip()
+
 
 @app.route("/")
 def index():
@@ -146,35 +167,45 @@ def submit_order():
 def product_manager():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name, price, image FROM products")
+    cursor.execute("SELECT id, name, price, image FROM products ORDER BY position ASC, id ASC")
     products = cursor.fetchall()
     conn.close()
     return render_template("products.html", products=products)
-from pathlib import Path
-@app.route("/update", methods=["POST"])
-def update_prods():
+
+@app.route("/products/bulk_update", methods=["POST"])
+def bulk_update_products():
+ 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    i = request.form.get('id')
-    name = request.form.get(f'name')
-    price = request.form.get(f'price')
-    image = request.files.get(f'image')
-
-    if image and image.filename:
-        filename = secure_filename(image.filename)
-        save_path = Path(UPLOAD_FOLDER) / filename
-        image.save(str(save_path))
-        image_path = str(save_path)
-    else:
-        # Get the current image path from DB
-        c.execute("SELECT image FROM products WHERE id = ?", (i,))
-        current_image = c.fetchone()
-        if current_image:
-            image_path = current_image[0]
+    # Get all product ids from the form
+    ids = request.form.getlist('id')
+    names = request.form.getlist('name')
+    prices = request.form.getlist('price')
+    positions = request.form.getlist('position')
+    # For file uploads, use request.files.getlist for all images
+    images = request.files.getlist('image')
+    for idx, prod_id in enumerate(ids):
+        name = names[idx]
+        name = smart_capitalize(name)
+        raw_price = prices[idx].strip()
+        clean_price = re.sub(r'[^\d]', '', raw_price)
+        try:
+            price = int(clean_price)
+        except ValueError:
+            price = 0
+        position = int(positions[idx]) if positions[idx].isdigit() else idx + 1
+        image = images[idx] if idx < len(images) else None
+        # Handle image upload or keep existing
+        if image and image.filename:
+            filename = secure_filename(image.filename)
+            save_path = os.path.join(UPLOAD_FOLDER, filename)
+            image.save(save_path)
+            image_path = save_path
         else:
-            image_path = ''
-
-    c.execute("UPDATE products SET name = ?, price = ?, image = ? WHERE id  = ?", (name, price, str(save_path), i))
+            c.execute("SELECT image FROM products WHERE id = ?", (prod_id,))
+            current_image = c.fetchone()
+            image_path = current_image[0] if current_image else ''
+        c.execute("UPDATE products SET name = ?, price = ?, image = ?, position = ? WHERE id = ?", (name, price, image_path, position, prod_id))
     conn.commit()
     conn.close()
     return redirect("/products")
@@ -192,7 +223,14 @@ def delete_product():
 @app.route("/products/add", methods=["POST"])
 def add_product():
     name = request.form["name"]
-    price = request.form["price"]
+    name = smart_capitalize(name)
+    import re
+    raw_price = request.form.get('price', '').strip()
+    clean_price = re.sub(r'[^\d]', '', raw_price)
+    try:
+        price = int(clean_price)
+    except ValueError:
+        price = 0
     image = request.files.get("image")
     if image and image.filename:
         filename = secure_filename(image.filename)
@@ -202,11 +240,17 @@ def add_product():
         image_path = ""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO products (name, price, image) VALUES (?, ?, ?)", (name, price, image_path))
+    # Get the current max position
+    cursor.execute("SELECT MAX(position) FROM products")
+    max_position = cursor.fetchone()[0]
+    if max_position is None:
+        new_position = 1
+    else:
+        new_position = max_position + 1
+    cursor.execute("INSERT INTO products (name, price, image, position) VALUES (?, ?, ?, ?)", (name, price, image_path, new_position))
     conn.commit()
     conn.close()
     return redirect("/products")
-
 
 
 app.secret_key = "f92e4b9c638a82e82d1e4e9b4753d1a9fabc1cd2e279c6e7f291f083e82c9b91"
@@ -307,6 +351,7 @@ def chart():
     clear_paid_orders_for_all()
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    error = None
     # Handle payment submission if admin and POST
     if request.method == "POST" and session.get("is_admin"):
         site_id = request.form.get("site_id")
@@ -325,19 +370,52 @@ def chart():
             # Allow payment for all employees at a site
             if employee_id and amount:
                 if employee_id == "all" and site_id:
-                    # Create a single payment entry for "All" employees
-                    # Use the first employee's ID as a placeholder, but mark it as "all" in the note
+                    # Calculate total debt for all employees at this site
+                    c.execute("SELECT id FROM employees WHERE site_id = ?", (site_id,))
+                    emp_ids = [row[0] for row in c.fetchall()]
+                    total_debt = 0
+                    for emp_id in emp_ids:
+                        c.execute("SELECT items FROM orders WHERE employee_id = ?", (emp_id,))
+                        orders = c.fetchall()
+                        for order in orders:
+                            total_debt += parse_order_total(order[0])
+                    try:
+                        amount_int = int(amount)
+                    except Exception:
+                        amount_int = -1
+                    if amount_int != total_debt or total_debt == 0:
+                        error = f"All Employees payment must match the total debt for this site (currently {total_debt})."
+                        flash(error, 'error')
+                        conn.close()
+                        return redirect(request.url)
+                    # Insert payment for all employees (as before)
                     c.execute("SELECT id FROM employees WHERE site_id = ? LIMIT 1", (site_id,))
                     first_emp = c.fetchone()
                     if first_emp:
                         timestamp = datetime.today().strftime("%Y-%m-%d %H:%M")
                         all_note = f"ALL EMPLOYEES: {note}" if note else "ALL EMPLOYEES"
-                        c.execute("INSERT INTO payments (employee_id, amount, date, note) VALUES (?, ?, ?, ?)", (first_emp[0], amount, timestamp, all_note))
+                        c.execute("INSERT INTO payments (employee_id, amount, date, note) VALUES (?, ?, ?, ?)", (first_emp[0], amount_int, timestamp, all_note))
+                        # Now clear all debts for all employees at this site
+                        for emp_id in emp_ids:
+                            # Move all orders to profit and delete them
+                            c.execute("SELECT id, items, date FROM orders WHERE employee_id = ?", (emp_id,))
+                            orders = c.fetchall()
+                            for order_id, items, date in orders:
+                                order_total = parse_order_total(items)
+                                c.execute("""INSERT INTO profit (employee_id, original_order_id, items, total_paid, date_cleared)
+                                             VALUES (?, ?, ?, ?, DATE('now'))""", (emp_id, order_id, items, order_total))
+                                c.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+                        # Remove all payments for these employees (since the debt is cleared)
+                        for emp_id in emp_ids:
+                            c.execute("DELETE FROM payments WHERE employee_id = ?", (emp_id,))
                         conn.commit()
                 elif employee_id != "all":
                     timestamp = datetime.today().strftime("%Y-%m-%d %H:%M")
                     c.execute("INSERT INTO payments (employee_id, amount, date, note) VALUES (?, ?, ?, ?)", (employee_id, amount, timestamp, note))
                     conn.commit()
+            # After processing payment, redirect to GET to prevent duplicate submissions
+            conn.close()
+            return redirect(request.url)
     # Fetch all sites and employees for the filter form
     c.execute("SELECT id, location, maestro FROM sites")
     sites = c.fetchall()
@@ -471,7 +549,9 @@ def chart():
         order_total=order_total,
         payment_total=payment_total,
         net_total=net_total,
-        payment_key=payment_key)
+        payment_key=payment_key,
+        error=error,
+        messages=get_flashed_messages(with_categories=True))
 
 @app.route("/del_order", methods = ["POST"])
 def del_order():
@@ -607,38 +687,36 @@ def update_site():
 def delete_site():
     if not session.get("is_admin"):
         return "Unauthorized", 403
-    
     site_id = request.form.get("site_id")
-    
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        
         # Check if site exists
         cursor.execute("SELECT id, location FROM sites WHERE id = ?", (site_id,))
         site = cursor.fetchone()
         if not site:
             return f"Site {site_id} not found", 404
-        
-        
         # Get all employees for this site
         cursor.execute("SELECT id FROM employees WHERE site_id = ?", (site_id,))
         employees = cursor.fetchall()
-        
+        # Check for outstanding orders for any employee
+        for emp in employees:
+            emp_id = emp[0]
+            cursor.execute("SELECT COUNT(*) FROM orders WHERE employee_id = ?", (emp_id,))
+            if cursor.fetchone()[0] > 0:
+                conn.close()
+                flash("Cannot delete site: there are still outstanding orders (debts) for this site.", "error")
+                return redirect("/manage")
         # Delete all orders for employees at this site
         for emp in employees:
             emp_id = emp[0]
             cursor.execute("DELETE FROM orders WHERE employee_id = ?", (emp_id,))
-        
         # Delete all employees for this site
         cursor.execute("DELETE FROM employees WHERE site_id = ?", (site_id,))
-        
         # Then delete the site
         cursor.execute("DELETE FROM sites WHERE id = ?", (site_id,))
-        
         conn.commit()
         conn.close()
-        
         return redirect("/manage")
     except Exception as e:
         return f"Error deleting site: {e}", 500
@@ -719,13 +797,58 @@ def profit():
         return "Unauthorized", 403
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT employee_id, original_order_id, items, total_paid, date_cleared FROM profit ORDER BY date_cleared DESC")
+    # Date range and pagination
+    start = request.args.get("start")
+    end = request.args.get("end")
+    offset = int(request.args.get("offset", 0))
+    limit = 50
+    # Default date range: last 30 days
+    if not start or not end:
+        today = datetime.today().date()
+        start = (today - timedelta(days=30)).isoformat()
+        end = today.isoformat()
+    # Query profits in date range
+    c.execute("SELECT COUNT(*) FROM profit WHERE date_cleared BETWEEN ? AND ?", (start, end))
+    length = c.fetchone()[0]
+    c.execute("SELECT employee_id, original_order_id, items, total_paid, date_cleared FROM profit WHERE date_cleared BETWEEN ? AND ? ORDER BY date_cleared DESC LIMIT ? OFFSET ?", (start, end, limit, offset))
     profits = c.fetchall()
     # Get employee names for display
     c.execute("SELECT id, name FROM employees")
     emp_names = {row[0]: row[1] for row in c.fetchall()}
+    # Per-product stats
+    summary = {}
+    full_total = 0
+    for emp_id, order_id, items, total_paid, date_cleared in profits:
+        for item in items.split(","):
+            item = item.strip()
+            if ":" in item and ";" in item:
+                try:
+                    name_price, qty = item.split(";", 1)
+                    name, price = name_price.split(":", 1)
+                    name = name.strip()
+                    price = int(price.strip())
+                    qty = int(qty.strip())
+                    if name not in summary:
+                        summary[name] = {'qty': 0, 'total': 0}
+                    summary[name]['qty'] += qty
+                    summary[name]['total'] += price * qty
+                    full_total += price * qty
+                except Exception:
+                    continue
     conn.close()
-    return render_template("profit.html", profits=profits, emp_names=emp_names)
+    return render_template("profit.html", profits=profits, emp_names=emp_names, start=start, end=end, offset=offset, length=length, summary=summary, full_total=full_total)
+
+@app.route("/del_profit", methods=["POST"])
+def del_profit():
+    if not session.get("is_admin"):
+        return "Unauthorized", 403
+    profit_id = request.form.get("profit_id")
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM profit WHERE original_order_id = ?", (profit_id,))
+    conn.commit()
+    conn.close()
+    return redirect("/profit")
 
 
 if __name__ == '__main__':

@@ -34,7 +34,7 @@
             </div>
             <div style="flex: 1; text-align: right;">
                 {% if session.get('is_admin') %}
-                    <span style="font-size: 0.9rem; opacity: 0.9;">Admin Mode</span>
+                    <span style="display: inline-block; background: #27ae60; color: white; border-radius: 999px; padding: 0.3em 1em; font-weight: bold; font-size: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,0.08); vertical-align: middle;">Admin</span>
                 {% endif %}
             </div>
         </div>
@@ -56,8 +56,7 @@
                     <a href="/products" class="footer-button">Manage Products</a>
                     <a href="/manage" class="footer-button">Manage Sites</a>
                     <a href="/profit" class="footer-button">View Profits</a>
-                {% else %}
-                    <a href="/admin" class="footer-button">Admin Login</a>
+
                 {% endif %}
             </div>
             <p style="margin: 0; font-size: 0.9rem;">

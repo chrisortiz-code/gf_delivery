@@ -6,50 +6,138 @@
 
 {% block extra_head %}
 <style>
-    table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-    th { background: #f0f0f0; }
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1.5rem auto;
+    background: white;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+th, td {
+    border: 1px solid #ccc;
+    padding: 10px 12px;
+    text-align: left;
+}
+th {
+    background: #f0f0f0;
+    font-weight: bold;
+}
+tr:nth-child(even) {
+    background: #faf7fa;
+}
 </style>
 {% endblock %}
 
 {% block content %}
 <div style="text-align: center;">
-    <table>
-        <thead>
-            <tr>
-                <th>Employee</th>
-                <th>Items</th>
-                <th>Total Paid</th>
-                <th>Date Cleared</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for emp_id, order_id, items, total_paid, date_cleared in profits %}
-            <tr>
-                <td>{{ emp_names.get(emp_id) or ('Employee #' ~ emp_id) }}</td>
-                <td>
-                  <ul style="list-style: none; padding-left: 0; margin: 0;">
-                  {% for item in items.split(",") %}
-                    {% set item = item.strip() %}
-                    {% if ":" in item and ";" in item %}
-                      {% set name_price = item.split(";")[0] %}
-                      {% set qty = item.split(";")[1].strip() %}
-                      {% set name = name_price.split(":")[0].strip() %}
-                      {% set price = name_price.split(":")[1].strip() %}
-                      <li>{{ name }} @ ${{ price }} × {{ qty }}</li>
-                    {% else %}
-                      <li>{{ item }}</li>
-                    {% endif %}
-                  {% endfor %}
-                  </ul>
-                </td>
-                <td>${{ total_paid }}</td>
-                <td>{{ date_cleared }}</td>
-            </tr>
+  <form method="GET" action="/profit" id="date-form" style="margin-top: 1rem">
+    <label for="start">Start:</label>
+    <input type="date" id="start" name="start" value="{{start}}">
+    <label for="end">End:</label>
+    <input type="date" id="end" name="end" value="{{end}}">
+    <input type="hidden" name="offset" id="offset" value="{{offset or 0}}">
+    <button type="submit">Filter</button>
+    <button type="button" onclick="setToday()">Today's Profits</button>
+  </form>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Employee</th>
+        <th>Items</th>
+        <th>Total Paid</th>
+        <th>Date Cleared</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for emp_id, order_id, items, total_paid, date_cleared in profits %}
+      <tr>
+        <td>{{ emp_names.get(emp_id) or ('Employee #' ~ emp_id) }}</td>
+        <td>
+          <ul style="list-style: none; padding-left: 0; margin: 0;">
+          {% for item in items.split(",") %}
+            {% set item = item.strip() %}
+            {% if ":" in item and ";" in item %}
+              {% set name_price = item.split(";")[0] %}
+              {% set qty = item.split(";")[1].strip() %}
+              {% set name = name_price.split(":")[0].strip() %}
+              {% set price = name_price.split(":")[1].strip() %}
+              <li>{{ name }} @ ${{ price }} × {{ qty }}</li>
             {% else %}
-            <tr><td colspan="5"><em>No cleared orders yet.</em></td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
+              <li>{{ item }}</li>
+            {% endif %}
+          {% endfor %}
+          </ul>
+        </td>
+        <td>${{ total_paid }}</td>
+        <td>{{ date_cleared }}</td>
+        <td>
+          <form action="/del_profit" method="post">
+            <input type="hidden" name="profit_id" value="{{order_id}}">
+            <button type="submit" class="delete-btn">-</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5"><em>No cleared orders yet.</em></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if length|int > offset|int + 50|int %}
+      <form method="GET" action="/profit">
+          <input type="hidden" id="start" name="start" value="{{start}}">
+          <input type="hidden" id="end" name="end" value="{{end}}">
+          <input type="hidden" name="offset" id="offset" value="{{offset + 50}}">
+          <button type="submit">Load More</button>
+      </form>
+  {%else%}
+      <small style="color:gray;">All profits loaded</small>
+  {%endif%}
+
+  <h3 style="text-align:left">Per Product Stats</h3>
+  <table>
+    <tr>
+      <th>Product</th>
+      <th>Qty Sold</th>
+      <th>Total Revenue</th>
+    </tr>
+    {% for name, data in summary.items() %}
+        {%if data.qty > 0%}
+            <tr>
+            <td> {{name}} </td>
+            <td> {{data.qty}} </td>
+            <td> {{data.total}} </td>
+            </tr>
+        {%endif%}
+    {%endfor %}
+    <tr style = "font-weight:bold; border-top:1px solid black;">
+      <td>Total (RD$)</td>
+      <td></td>
+      <td>{{full_total}}</td>
+    </tr>
+  </table>
 </div>
+
+<script>
+  document.getElementById("date-form").addEventListener( "submit",
+    function (e) {
+      const start = document.querySelector("#start").value;
+      const end = document.querySelector("#end").value;
+      if (start && end && start > end ){
+        alert("End must be after start");
+        e.preventDefault()
+      }
+    });
+  function setToday(){
+    const now = new Date();
+    const local = now.getFullYear() + '-' +
+      String(now.getMonth() + 1).padStart(2, '0') + '-' +
+      String(now.getDate()).padStart(2, '0');
+    document.querySelector('input[name = "start"]').value = local;
+    document.querySelector('input[name="end"]').value = local;
+    form = document.getElementById("date-form"); 
+    form.submit();
+  }
+</script>
 {% endblock %} 

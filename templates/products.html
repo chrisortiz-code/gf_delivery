@@ -1,144 +1,114 @@
 {% extends "base.html" %}
-
 {% block title %}Edit Products{% endblock %}
-
-{% block header_title %}Edit Products{% endblock %}
-
-{% block extra_head %}
-<style>
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px,1fr));
-      gap: 1rem;
-      padding: 1rem;
-    }
-
-    .product {
-      background: white;
-      padding: 1rem;  
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-      display:flex;
-      flex-direction: column;
-      align-items: stretch;
-      word-wrap: break-word;
-      overflow-wrap: break-word;
-    }
-  
-    form {
-      display:flex;
-      flex-direction: column;
-      gap: 0.4rem;
-      width:100%;
-    }
-    label{
-      font-size: 0.85rem;
-      color: #555;
-    }
-
-    input {
-      width:100%;
-      padding:0.3rem;
-      font-size:0.9rem;
-    }
-
-    input.product-name,
-    input.product-price{
-      display:block;
-      width:100%;
-      margin: 0.3rem 9;
-      padding: 0.4rem;
-      font-size: 1rem;
-      text-align: center;
-      border:none;
-      background: transparent;
-      
-      font-weight :bold;
-    }
-    input.product-price {
-      color : #333;
-      font-weight:normal
-    }
-    
-    .image-wrapper img {
-      max-width: 100%;
-      max-height: 100%;
-      object-fit: contain;
-    }
-
-    .image-wrapper {
-      width:100%;
-      height:100px;
-      margin-top: .5rem;
-      overflow:hidden;
-      display:flex;
-      align-items:center;
-      justify-content: ceter;
-      border: 1px solid #ddd;
-      background: #fafafa;
-    }
-    button {
-      padding: 10px 18px;
-      font-size: 16px;
-      border: none;
-      border-radius: 8px;
-      color: white;
-      cursor: pointer;
-      transition: background-color 0.2s ease, transform 0.1s ease;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-    }
-
-    .update-button {
-      background-color: #5a866b; /* Green tint */
-    }
-
-    .update-button:hover {
-      background-color: #318a52; /* Slightly darker green */
-    }
-    .delete-button {
-      background-color: rgb(252, 166, 166);
-    }
-    .delete-button:hover{
-      background-color: rgb(248, 94, 94);
-    }
-</style>
-{% endblock %}
-
 {% block content %}
-<div style="text-align: center;">
-  <h2 style="text-align: center; margin-bottom: 20px;">Categories</h2>
-
-<div class = "grid">
-  {% for id, name, price, image in products %}
-      <div class = "product">
-
-  <form method = "POST" action = "/update" enctype = "multipart/form-data">
-       
-        <input type="hidden" name="id" value="{{ id }}">
-        <label>Name:</label>  <textarea style = "width:90%; resize:vertical;"  class = "product-name" name="name">{{ name }}</textarea>
-        <label>Price (RD$): </label>  <input class = "product-price" type="text" inputmode="decimal" step="10" name="price" value="{{ price }}">
-        <label>Change Image:</label>  <input type = "file" name = "image" accept = "image/*">
-        <div class = "image-wrapper"><img src="{{image}}"></div>
-	
-	<button class = "update-button" type = "submit">Update</button>
-  </form>
-      <form action="/products/delete" method="post" style="margin-bottom:20px;">
-        <input type="hidden" name="name" value="{{ name }}">
-        <button type="submit" class = "delete-button">Delete</button>
-      </form>
+<h2 style="text-align: center; margin-bottom: 20px;">Categories</h2>
+<form id="products-form" method="POST" action="/products/bulk_update" enctype="multipart/form-data"
+  style="max-width: 900px; margin: 0 auto;">
+  <ul id="products-list" style="list-style: none; padding: 0; max-width: 900px; margin: 0 auto;">
+    {% for id, name, price, image in products %}
+    <li data-id="{{ id }}"
+      style="display: flex; align-items: center; gap: 1rem; background: #fff; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 12px; padding: 12px 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.04);">
+      <div
+        style="width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; background: #fafafa; border-radius: 6px; overflow: hidden;">
+        <img src="{{ image }}" alt="{{ name }}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
       </div>
-  {%endfor%}
-</div>
+      <input type="hidden" name="id" value="{{ id }}">
+      <input type="hidden" name="position" value="{{ loop.index }}">
+      <div style="flex: 1 1 200px; min-width: 100px; display: flex; flex-direction: column;">
+        <label for="name-{{ id }}" style="font-size: 0.95rem; color: #555; margin-bottom: 2px;">Name</label>
+        <input id="name-{{ id }}" class="product-name themed-input" name="name" value="{{ name }}"
+          style="font-weight: bold; border: 2px solid #be4272; border-radius: 6px; background: transparent; font-size: 1rem; padding: 4px 8px;">
+      </div>
+      <div style="width: 90px; display: flex; flex-direction: column; align-items: flex-end;">
+        <label for="price-{{ id }}" style="font-size: 0.95rem; color: #555; margin-bottom: 2px;">Price</label>
+        <input id="price-{{ id }}" class="product-price themed-input" type="text" inputmode="decimal" step="10"
+          name="price" value="{{ price }}"
+          style="width: 70px; text-align: right; border: 2px solid #be4272; border-radius: 6px; background: transparent; padding: 4px 8px;">
+      </div>
+      <label style="margin: 0; font-size: 0.95rem; color: #555;">Change Image:
+        <input type="file" name="image" accept="image/*" style="width: 120px;">
+      </label>
+      <button type="button" class="delete-button" data-id="{{ id }}"
+        style="background-color: rgb(252, 166, 166); color: white; border: none; border-radius: 6px; padding: 4px 10px; font-size: 0.95rem; margin-left: 8px;">🗑</button>
+    </li>
+    {% endfor %}
+  </ul>
+  <div style="text-align: right; margin-top: 20px;">
+    <button type="submit" class="update-button" id="save-changes-btn"
+      style="background-color: #5a866b; color: white; border: none; border-radius: 6px; padding: 10px 24px; font-size: 1.1rem;">Save
+      Changes</button>
+  </div>
+</form>
 <br>
-  <h3>Add New Product</h3>
-  <form action="/products/add" method="post">
-    Name: <input type="text" name="name" required>
-    Price: <input type="number" step="0.01" name="price" required>
-    Image: <input type = "file" name = "image" accept = "image/*" capture = "environment">
+<h3 style="text-align: center; margin-bottom: 16px;">Add New Product</h3>
+<form action="/products/add" method="post" enctype="multipart/form-data"
+  style="max-width: 900px; margin: 0 auto; display: flex; align-items: center; gap: 1rem; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.04);">
+  <div
+    style="width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; background: #fafafa; border-radius: 6px; overflow: hidden;">
+    <!-- Placeholder for image preview -->
+  </div>
+  <div style="flex: 1 1 200px; min-width: 100px; display: flex; flex-direction: column;">
+    <label for="add-name" style="font-size: 0.95rem; color: #555; margin-bottom: 2px;">Name</label>
+    <input id="add-name" type="text" name="name" required class="themed-input"
+      style="font-weight: bold; border: 2px solid #be4272; border-radius: 6px; background: transparent; font-size: 1rem; padding: 4px 8px;">
+  </div>
+  <div style="width: 90px; display: flex; flex-direction: column; align-items: flex-end;">
+    <label for="add-price" style="font-size: 0.95rem; color: #555; margin-bottom: 2px;">Price</label>
+    <input id="add-price" type="number" step="10" name="price" required class="themed-input"
+      style="width: 70px; text-align: right; border: 2px solid #be4272; border-radius: 6px; background: transparent; padding: 4px 8px;">
+  </div>
+  <label style="margin: 0; font-size: 0.95rem; color: #555;">Image:
+    <input type="file" name="image" accept="image/*" capture="environment" style="width: 120px;">
+  </label>
+  <button type="submit"
+    style="background-color: #5a866b; color: white; border: none; border-radius: 6px; padding: 10px 24px; font-size: 1.1rem;">Add</button>
+</form>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/Sortable.min.js') }}"></script>
+<script>
+  // Delete button handler
+  document.querySelectorAll('.delete-button').forEach(btn => {
+    btn.addEventListener('click', function (e) {
+      const id = this.getAttribute('data-id');
+      if (confirm('Delete this product?')) {
+        // Create a form and submit for deletion
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/products/delete';
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'name';
+        // Find the name input in the same row
+        const nameInput = this.closest('li').querySelector('input[name="name"]');
+        input.value = nameInput.value;
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+      }
+    });
+  });
 
-    <button type="submit">Add</button>
-  </form>
+  // Make Enter key in any input trigger Save Changes (not delete)
+  document.getElementById('products-form').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      // Only trigger for text/number inputs
+      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName) && e.target.type !== 'file') {
+        e.preventDefault();
+        document.getElementById('save-changes-btn').click();
+      }
+    }
+  });
 
-
-</div>
+  // SortableJS
+  const sortable = new Sortable(document.getElementById('products-list'), {
+    animation: 150,
+    onEnd: function (evt) {
+      // Update the hidden position input in each row
+      document.querySelectorAll('#products-list li').forEach((li, idx) => {
+        li.querySelector('input[name="position"]').value = idx + 1;
+      });
+    }
+  });
+</script>
 {% endblock %}

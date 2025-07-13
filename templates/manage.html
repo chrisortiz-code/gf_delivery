@@ -21,6 +21,17 @@
 
 {% block content %}
 <div style="text-align: center;">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div style="max-width:600px;margin:1em auto;">
+          {% for category, message in messages %}
+            <div style="padding: 1em; border-radius: 6px; margin-bottom: 1em; color: #fff; background: {% if category == 'error' %}#e74c3c{% else %}#5a866b{% endif %}; font-weight: bold;">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
     {% for site in sites %}
     <div class="site-section">
         <form method="POST" action="/update_site" style="display: inline;">

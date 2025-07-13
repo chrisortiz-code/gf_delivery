@@ -34,16 +34,16 @@ c = con.cursor()
 
 
 # Create profit table for cleared orders
-c.execute('''
-CREATE TABLE IF NOT EXISTS profit (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    employee_id INTEGER NOT NULL,
-    original_order_id INTEGER NOT NULL,
-    items TEXT NOT NULL,
-    total_paid INTEGER NOT NULL,
-    date_cleared DATE NOT NULL
-)
-''')
+# c.execute('''
+# CREATE TABLE IF NOT EXISTS profit (
+#     id INTEGER PRIMARY KEY AUTOINCREMENT,
+#     employee_id INTEGER NOT NULL,
+#     original_order_id INTEGER NOT NULL,
+#     items TEXT NOT NULL,
+#     total_paid INTEGER NOT NULL,
+#     date_cleared DATE NOT NULL
+# )
+# ''')
 
 # Migration: Update sites table to add maestro and remove total_owing
 
@@ -69,6 +69,18 @@ CREATE TABLE IF NOT EXISTS profit (
 # # Drop old table and rename new one
 # c.execute('DROP TABLE sites')
 # c.execute('ALTER TABLE sites_new RENAME TO sites')
+
+
+
+# Add 'position' column if it doesn't exist
+try:
+    c.execute("ALTER TABLE products ADD COLUMN position INTEGER")
+except sql.OperationalError:
+    # Column already exists
+    pass
+
+# Set position = id + 1 for all existing products where position is NULL or 0
+c.execute("UPDATE products SET position = id + 1 WHERE position IS NULL OR position = 0")
 
 
 con.commit()
