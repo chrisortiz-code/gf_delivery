@@ -673,7 +673,16 @@ def update_site():
     
     site_id = request.form.get("site_id")
     location = request.form.get("location")
-    maestro = request.form.get("maestro")
+    
+    # Collect maestro inputs (maestro_1 through maestro_5)
+    maestro_inputs = []
+    for i in range(1, 6):
+        maestro_value = request.form.get(f"maestro_{i}", "").strip()
+        if maestro_value:  # Only add non-empty values
+            maestro_inputs.append(maestro_value)
+    
+    # Join with semicolons
+    maestro = ";".join(maestro_inputs)
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -777,7 +786,16 @@ def add_site():
         return "Unauthorized", 403
     
     location = request.form.get("location")
-    maestro = request.form.get("maestro")
+    
+    # Collect maestro inputs (maestro_1 through maestro_5)
+    maestro_inputs = []
+    for i in range(1, 6):
+        maestro_value = request.form.get(f"maestro_{i}", "").strip()
+        if maestro_value:  # Only add non-empty values
+            maestro_inputs.append(maestro_value)
+    
+    # Join with semicolons
+    maestro = ";".join(maestro_inputs)
     
     # Generate a random site ID
     site_id = rand_str(8)

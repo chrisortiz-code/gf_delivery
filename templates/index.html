@@ -115,7 +115,7 @@
       {% endfor %}
     </div>
     <div id="maestro-info" style="margin: 10px 0; font-style: italic; color: #666; display: none;">
-      <strong>Maestro:</strong> <span id="maestro-name"></span>
+      <strong>Maestros:</strong> <span id="maestro-name"></span>
     </div>
     <div style="margin: 20px 0;">
       <label for="employee_id"><b>Select Employee:</b></label><br>
@@ -274,8 +274,17 @@
     const siteId = selectedSite.value;
     const maestro = selectedSite.getAttribute('data-maestro');
     
-    // Show maestro information
-    maestroName.textContent = maestro || 'Not specified';
+    // Show maestro information - handle multiple maestros
+    if (maestro && maestro.trim()) {
+      const maestroList = maestro.split(';').map(m => m.trim()).filter(m => m);
+      if (maestroList.length > 0) {
+        maestroName.textContent = maestroList.join(', ');
+      } else {
+        maestroName.textContent = 'Not specified';
+      }
+    } else {
+      maestroName.textContent = 'Not specified';
+    }
     maestroInfo.style.display = 'block';
     
     for (const option of employeeSelect.options) {

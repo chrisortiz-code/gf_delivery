@@ -22,7 +22,7 @@
 {% block content %}
 <div style="text-align:center" class="content">
 {% if selected_maestro %}
-  <p style="margin-top: 0.5em; font-style: italic; color: #666;">Maestro: {{ selected_maestro }}</p>
+  <p style="margin-top: 0.5em; font-style: italic; color: #666;">Maestros: {{ selected_maestro.split(';') | join(', ') }}</p>
 {% endif %}
 <form class="filter-form" method="get" action="/chart">
   <div>
