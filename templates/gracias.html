@@ -13,7 +13,6 @@
 
 {% block content %}
 <div style="text-align: center;">
-    <h3>Gracias por tu compra - {{ employee_name }}</h3>
         {% set ns = namespace(total=0) %}
         {%for name, qty, subtotal in receipt  %}
         <div class = "line">

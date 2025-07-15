@@ -103,6 +103,8 @@
     }
     empSelect.disabled = false;
     updateCheckoutBtn();
+    // Submit the form to reload with new boss_id in the URL
+    document.getElementById('orderForm').submit();
   }
   function updateCheckoutBtn() {
     const empSelect = document.getElementById('employee_id');

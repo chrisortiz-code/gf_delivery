@@ -38,65 +38,6 @@ button:active, .checkout-button:active {
   flex-wrap: wrap;
 }
 
-.styled-select {
-  padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid #be4272;
-  background: #fff;
-  font-size: 16px;
-  min-width: 220px;
-  color: #181818;
-  transition: border 0.2s;
-}
-.styled-select:focus {
-  border: 2px solid #be4272;
-  outline: none;
-}
-.boss-radio-group label {
-  display: inline-block;
-  margin: 0 0.5em 0.5em 0;
-  padding: 6px 18px;
-  border-radius: 20px;
-  border: 1.5px solid #be4272;
-  background: #fff;
-  color: #be4272;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-}
-.boss-radio-group input[type="radio"]:checked + span {
-  background: #be4272;
-  color: #fff;
-}
-.boss-radio-group input[type="radio"] {
-  display: none;
-}
-.boss-radio-group span {
-  pointer-events: none;
-}
-.site-radio-group label {
-  display: inline-block;
-  margin: 0 0.5em 0.5em 0;
-  padding: 6px 18px;
-  border-radius: 20px;
-  border: 1.5px solid #5a866b;
-  background: #fff;
-  color: #5a866b;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-}
-.site-radio-group input[type="radio"]:checked + span {
-  background: #5a866b;
-  color: #fff;
-}
-.site-radio-group input[type="radio"] {
-  display: none;
-}
-.site-radio-group span {
-  pointer-events: none;
-}
-
 /* Table improvements */
 table {
   margin: 2em auto;
@@ -131,27 +72,6 @@ tr[style*="background:#eaf2ff;"] {
   background: #eaf2ff !important;
 }
 
-/* Invert color scheme for selected radios */
-.boss-radio-group input[type="radio"]:checked + span {
-  background: #be4272;
-  color: #fff;
-  border: 1.5px solid #be4272;
-}
-.boss-radio-group label span {
-  background: #fff;
-  color: #be4272;
-  border: 1.5px solid #be4272;
-}
-.site-radio-group input[type="radio"]:checked + span {
-  background: #5a866b;
-  color: #fff;
-  border: 1.5px solid #5a866b;
-}
-.site-radio-group label span {
-  background: #fff;
-  color: #5a866b;
-  border: 1.5px solid #5a866b;
-}
 
 /* Dropdown improvements */
 .styled-select {
@@ -175,4 +95,41 @@ tr[style*="background:#eaf2ff;"] {
   th, td {
     padding: 6px 4px;
   }
+}
+
+/* Product grid styling */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+  margin: 2em auto;
+  max-width: 1200px;
+  padding: 0 1em;
+}
+.product {
+  background: #fff;
+  border: 2px solid #be4272;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(190,66,114,0.07);
+  padding: 1.5em 1em 1em 1em;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.product:hover {
+  border-color: #5a866b;
+  box-shadow: 0 4px 16px rgba(90,134,107,0.12);
+}
+.product img {
+  max-width: 100px;
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-bottom: 1em;
+}
+.line {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
 }

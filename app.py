@@ -9,12 +9,16 @@ import os
 from werkzeug.utils import secure_filename
 from werkzeug.utils import secure_filename
 import re
+from flask import url_for
+
 
 app = Flask(__name__)
 DB_PATH = "Databases/good_food.db"
 
 UPLOAD_FOLDER = "static/images"
-
+@app.errorhandler(500)
+def internal_error(error):
+    return render_template('500.html', error=error), 500
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
@@ -366,30 +370,74 @@ def clear_paid_orders_for_all():
     conn.commit()
     conn.close()
 
+def get_sites_bosses_employees():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT id, location FROM sites")
+    sites = c.fetchall()
+    c.execute("SELECT id, name, site_id FROM bosses")
+    bosses = c.fetchall()
+    c.execute("SELECT id, name, boss_id FROM employees")
+    employees = c.fetchall()
+    conn.close()
+    return sites, bosses, employees
+
+def build_site_bosses(sites, bosses, employees):
+    site_bosses = {str(site_id): {} for site_id, _ in sites}
+    for boss_id, boss_name, site_id in bosses:
+        site_bosses[str(site_id)][str(boss_id)] = {'name': boss_name, 'employees': []}
+    for emp_id, emp_name, boss_id in employees:
+        for site_id, bosses_dict in site_bosses.items():
+            if str(boss_id) in bosses_dict:
+                bosses_dict[str(boss_id)]['employees'].append({'id': emp_id, 'name': emp_name})
+    return site_bosses
+
+def parse_orders_payments(c, selected_employee, emp_ids=None):
+    orders, payments, grand_total = [], [], 0
+    if selected_employee and selected_employee != 'all':
+        c.execute("SELECT id, items, date, signature FROM orders WHERE employee_id = ? ORDER BY date DESC", (selected_employee,))
+        raw_orders = c.fetchall()
+        for order in raw_orders:
+            order_total = parse_order_total(order[1])
+            grand_total += order_total
+            orders.append((order[0], order[1], order[2], selected_employee, order_total, order[3]))
+        c.execute("SELECT amount, date, note FROM payments WHERE employee_id = ? ORDER BY date DESC", (selected_employee,))
+        payments = c.fetchall()
+    elif emp_ids:
+        qmarks = ','.join(['?']*len(emp_ids))
+        c.execute(f"SELECT id, items, date, employee_id, signature FROM orders WHERE employee_id IN ({qmarks}) ORDER BY date DESC", emp_ids)
+        raw_orders = c.fetchall()
+        for order in raw_orders:
+            order_total = parse_order_total(order[1])
+            grand_total += order_total
+            orders.append((order[0], order[1], order[2], order[3], order_total, order[4]))
+        c.execute(f"SELECT employee_id, amount, date, note FROM payments WHERE employee_id IN ({qmarks}) ORDER BY date DESC", emp_ids)
+        payments = c.fetchall()
+    return orders, payments, grand_total
+
 @app.route("/chart", methods=["GET", "POST"])
 def chart():
     clear_paid_orders_for_all()
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
     error = None
-    # Handle payment submission if admin and POST (leave as is for now)
+
+    # Handle payment submission if admin and POST
     if request.method == "POST" and session.get("is_admin"):
+        # ... (keep your payment logic here, or move to a helper)
+        # Existing payment logic remains unchanged
         site_id = request.form.get("site_id")
         boss_id = request.form.get("boss_id") or request.values.get("boss_id")
         employee_id = request.form.get("employee_id")
         amount = request.form.get("amount")
         note = request.form.get("note")
         payment_key = request.form.get("payment_key")
-        # Check if this payment key has already been processed
         if payment_key and payment_key not in session.get('processed_payment_keys', []):
-            # Store the payment key to prevent duplicate processing
             if 'processed_payment_keys' not in session:
                 session['processed_payment_keys'] = []
             session['processed_payment_keys'].append(payment_key)
-            # Allow payment for all employees under a boss
             if employee_id and amount:
                 if employee_id == "all" and boss_id:
-                    # Calculate total debt for all employees under this boss
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
                     c.execute("SELECT id FROM employees WHERE boss_id = ?", (boss_id,))
                     emp_ids = [row[0] for row in c.fetchall()]
                     total_debt = 0
@@ -407,16 +455,13 @@ def chart():
                         flash(error, 'error')
                         conn.close()
                         return redirect(request.url)
-                    # Insert payment for all employees (as before)
                     c.execute("SELECT id FROM employees WHERE boss_id = ? LIMIT 1", (boss_id,))
                     first_emp = c.fetchone()
                     if first_emp:
                         timestamp = datetime.today().strftime("%Y-%m-%d %H:%M")
                         all_note = f"ALL EMPLOYEES: {note}" if note else "ALL EMPLOYEES"
                         c.execute("INSERT INTO payments (employee_id, amount, date, note) VALUES (?, ?, ?, ?)", (first_emp[0], amount_int, timestamp, all_note))
-                        # Now clear all debts for all employees under this boss
                         for emp_id in emp_ids:
-                            # Move all orders to profit and delete them
                             c.execute("SELECT id, items, date FROM orders WHERE employee_id = ?", (emp_id,))
                             orders = c.fetchall()
                             for order_id, items, date in orders:
@@ -424,80 +469,44 @@ def chart():
                                 c.execute("""INSERT INTO profit (employee_id, original_order_id, items, total_paid, date_cleared)
                                              VALUES (?, ?, ?, ?, DATE('now'))""", (emp_id, order_id, items, order_total))
                                 c.execute("DELETE FROM orders WHERE id = ?", (order_id,))
-                        # Remove all payments for these employees (since the debt is cleared)
                         for emp_id in emp_ids:
                             c.execute("DELETE FROM payments WHERE employee_id = ?", (emp_id,))
                         conn.commit()
+                        conn.close()
                 elif employee_id != "all":
+                    conn = sqlite3.connect(DB_PATH)
+                    c = conn.cursor()
                     timestamp = datetime.today().strftime("%Y-%m-%d %H:%M")
                     c.execute("INSERT INTO payments (employee_id, amount, date, note) VALUES (?, ?, ?, ?)", (employee_id, amount, timestamp, note))
                     conn.commit()
-            # After processing payment, redirect to GET to prevent duplicate submissions
-            conn.close()
+                    conn.close()
             return redirect(request.url)
-    # Fetch all sites
-    c.execute("SELECT id, location FROM sites")
-    sites = c.fetchall()
-    # Fetch all bosses
-    c.execute("SELECT id, name, site_id FROM bosses")
-    bosses = c.fetchall()
-    # Fetch all employees
-    c.execute("SELECT id, name, boss_id FROM employees")
-    employees = c.fetchall()
-    # Build a structure: {site_id: {boss_id: {boss_name, employees: [...]}}}
-    site_bosses = {}
-    for site_id, location in sites:
-        site_bosses[site_id] = {}
-    for boss_id, boss_name, site_id in bosses:
-        if site_id in site_bosses:
-            site_bosses[site_id][str(boss_id)] = {'name': boss_name, 'employees': []}
-    for emp_id, emp_name, boss_id in employees:
-        for site_id, bosses_dict in site_bosses.items():
-            if str(boss_id) in bosses_dict:
-                bosses_dict[str(boss_id)]['employees'].append({'id': emp_id, 'name': emp_name})
-    # --- Filtering logic ---
+
+    # Fetch data
+    sites, bosses, employees = get_sites_bosses_employees()
+    site_bosses = build_site_bosses(sites, bosses, employees)
+
+    # Filtering logic
     selected_site = request.values.get("site_id")
     boss_id_list = request.values.getlist("boss_id")
     selected_boss = boss_id_list[0] if boss_id_list else None
-    selected_employee = request.values.get("employee_id")
+    selected_employee = request.values.get("employee_id") or "all"
     filtered_employees = []
     if selected_site and selected_boss and selected_boss in site_bosses[selected_site]:
         filtered_employees = site_bosses[selected_site][selected_boss]['employees']
+
     # Orders/payments filtering
-    orders = []
-    payments = []
-    grand_total = 0
-    if selected_employee and selected_employee != 'all':
-        # Show orders/payments for one employee
-        c.execute("SELECT id, items, date, signature FROM orders WHERE employee_id = ? ORDER BY date DESC", (selected_employee,))
-        raw_orders = c.fetchall()
-        for order in raw_orders:
-            order_total = parse_order_total(order[1])
-            grand_total += order_total
-            orders.append((order[0], order[1], order[2], selected_employee, order_total, order[3]))
-        c.execute("SELECT amount, date, note FROM payments WHERE employee_id = ? ORDER BY date DESC", (selected_employee,))
-        payments = c.fetchall()
-    elif selected_employee == 'all' and selected_boss and selected_site and selected_boss in site_bosses[selected_site]:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    emp_ids = None
+    if selected_employee == 'all' and selected_boss and selected_site and selected_boss in site_bosses[selected_site]:
         emp_ids = [e['id'] for e in site_bosses[selected_site][selected_boss]['employees']]
-        if emp_ids:
-            qmarks = ','.join(['?']*len(emp_ids))
-            c.execute(f"SELECT id, items, date, employee_id, signature FROM orders WHERE employee_id IN ({qmarks}) ORDER BY date DESC", emp_ids)
-            raw_orders = c.fetchall()
-            for order in raw_orders:
-                order_total = parse_order_total(order[1])
-                grand_total += order_total
-                orders.append((order[0], order[1], order[2], order[3], order_total, order[4]))
-            c.execute(f"SELECT employee_id, amount, date, note FROM payments WHERE employee_id IN ({qmarks}) ORDER BY date DESC", emp_ids)
-            payments = c.fetchall()
-    else:
-        orders = []
-        payments = []
+    orders, payments, grand_total = parse_orders_payments(c, selected_employee, emp_ids)
     conn.close()
-    # Build all_entries in Python, with parsed_items for orders
-    all_entries = []
-    order_total = 0
-    payment_total = 0
+
+    # Build all_entries
     emp_names = {str(emp[0]): emp[1] for emp in employees}
+    all_entries, order_total, payment_total = [], 0, 0
     for order in orders:
         parsed_items = []
         for item in order[1].split(","):
@@ -525,7 +534,13 @@ def chart():
         })
         order_total += order[4]
     for payment in payments:
-        emp_id, amount, date, note = payment
+        if len(payment) == 4:
+            emp_id, amount, date, note = payment
+        elif len(payment) == 3:
+            amount, date, note = payment
+            emp_id = selected_employee
+        else:
+            continue
         is_all_employees = note and note.startswith("ALL EMPLOYEES")
         all_entries.append({
             'type': 'payment',
@@ -538,8 +553,9 @@ def chart():
             'parsed_items': []
         })
         payment_total += amount
-    all_entries.sort(key=lambda x: x['date'], reverse=False)  # Oldest first
+    all_entries.sort(key=lambda x: x['date'], reverse=False)
     net_total = order_total - payment_total
+
     return render_template("chart.html", 
         sites=sites, 
         site_bosses=site_bosses,
@@ -843,6 +859,41 @@ def add_employee():
     if site_id:
         return redirect(f"/manage?site_id={site_id}")
     return redirect("/manage")
+
+@app.route("/update_bosses", methods=["POST"])
+def update_bosses():
+    site_id = request.form.get("site_id")
+    boss_ids = request.form.getlist("boss_id")
+    # Update or delete existing bosses
+    for boss_id in boss_ids:
+        if boss_id:  # Existing boss
+            boss_name = request.form.get(f"boss_name_{boss_id}", "").strip()
+            if boss_name == "":
+                # Delete boss if name is empty
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                c.execute("DELETE FROM bosses WHERE id = ?", (boss_id,))
+                # Optionally, handle employees under this boss (e.g., delete or reassign)
+                c.execute("DELETE FROM employees WHERE boss_id = ?", (boss_id,))
+                conn.commit()
+                conn.close()
+            else:
+                # Update boss name
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                c.execute("UPDATE bosses SET name = ? WHERE id = ?", (boss_name, boss_id))
+                conn.commit()
+                conn.close()
+    # Add new boss if provided
+    new_boss_name = request.form.get("boss_name_new", "").strip()
+    if new_boss_name:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("INSERT INTO bosses (name, site_id) VALUES (?, ?)", (new_boss_name, site_id))
+        conn.commit()
+        conn.close()
+    # Redirect back to manage page for the current site
+    return redirect(url_for("manage", site_id=site_id))
 
 def rand_str(length=8):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
