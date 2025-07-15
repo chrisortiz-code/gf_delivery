@@ -19,15 +19,14 @@
       <label><b>Select Location:</b></label>
       {% for site_id, location in sites %}
         <label>
-          <input type="radio" name="site_id" value="{{ site_id }}" onchange="updateBosses()"> {{ location }}
+          <input type="radio" name="site_id" value="{{ site_id }}" onchange="reloadWithSite('{{ site_id }}')"> {{ location }}
         </label>
       {% endfor %}
     </div>
     <div id="bosses-section"></div>
-    <input type="hidden" name="boss_id" id="hidden_boss_id">
     <div>
       <label for="employee_id"><b>Select Employee:</b></label>
-      <select name="employee_id" id="employee_id" onchange="submitWithBoss()" disabled>
+      <select name="employee_id" id="employee_id" onchange="submitWithBoss()">
         <option value="">-- Select Employee --</option>
       </select>
     </div>
@@ -74,8 +73,7 @@
           <td>
             {% if entry.type == 'order' and entry.signature %}
               <img src="{{ entry.signature }}" alt="Signature" style="max-width: 80px; max-height: 40px; border: 1px solid #ccc;">
-            {% elif entry.type == 'order' %}
-              <em>No signature</em>
+            
             {% else %}
               <em>-</em>
             {% endif %}
@@ -135,8 +133,6 @@
     const bossesSection = document.getElementById('bosses-section');
     bossesSection.innerHTML = '';
     document.getElementById('employee_id').innerHTML = '<option value="all">All Employees</option>';
-    document.getElementById('employee_id').disabled = true;
-    document.getElementById('hidden_boss_id').value = '';
     if (!siteId) {
       bossesSection.style.display = 'none';
       return;
@@ -148,22 +144,28 @@
     }
     bossesSection.style.display = 'block';
     let html = '<div><b>Select Boss:</b><br>';
+    let first = true;
     for (const bossId in bosses) {
-      html += `<label><input type="radio" name="boss_id" value="${bossId}" onchange="updateEmployees()"> ${bosses[bossId].name}</label>`;
+      html += `<label><input type="radio" name="boss_id" value="${bossId}" onchange="submitWithBoss()"${first ? ' checked' : ''}> ${bosses[bossId].name}</label>`;
+      first = false;
     }
     html += '</div>';
     bossesSection.innerHTML = html;
+    // After rendering, call updateEmployees() for the checked boss
+    updateEmployees();
   }
   function updateEmployees() {
     const bossRadios = document.querySelectorAll('input[name="boss_id"]');
     let bossId = null;
     bossRadios.forEach(r => { if (r.checked) bossId = r.value; });
     selectedBoss = bossId;
-    document.getElementById('hidden_boss_id').value = bossId || '';
     const empSelect = document.getElementById('employee_id');
     empSelect.innerHTML = '<option value="all">All Employees</option>';
-    empSelect.disabled = true;
-    if (!selectedSite || !bossId) return;
+    // Only disable if no site or boss is selected
+    if (!selectedSite || !bossId) {
+      empSelect.disabled = true;
+      return;
+    }
     const employees = siteBosses[selectedSite][bossId].employees;
     for (const emp of employees) {
       const opt = document.createElement('option');
@@ -171,15 +173,18 @@
       opt.textContent = emp.name;
       empSelect.appendChild(opt);
     }
-    if (employees.length > 0) empSelect.disabled = false;
+    empSelect.disabled = false;
+    // Set the dropdown to the employee_id from the URL if present
+    const params = new URLSearchParams(window.location.search);
+    const employeeId = params.get('employee_id') || 'all';
+    empSelect.value = employeeId;
   }
   function submitWithBoss() {
-    // Ensure boss_id is set before submitting
-    const bossRadios = document.querySelectorAll('input[name="boss_id"]');
-    let bossId = null;
-    bossRadios.forEach(r => { if (r.checked) bossId = r.value; });
-    document.getElementById('hidden_boss_id').value = bossId || '';
+    // Just submit the form as-is, do not force employee_id to 'all'
     document.getElementById('chart-filter-form').submit();
+  }
+  function reloadWithSite(siteId) {
+    window.location.href = '/chart?site_id=' + encodeURIComponent(siteId);
   }
   document.addEventListener('DOMContentLoaded', function() {
     // Read query params
@@ -198,8 +203,8 @@
       if (bossId) {
         const bossRadios = document.querySelectorAll('input[name="boss_id"]');
         bossRadios.forEach(r => { if (r.value === bossId) r.checked = true; });
-        document.getElementById('hidden_boss_id').value = bossId;
       }
+      // Always update employees after boss is set
       updateEmployees();
       // Set employee dropdown
       if (employeeId) {
@@ -208,8 +213,13 @@
       }
       // Always enable dropdown if boss and site are set and there are employees
       const empSelect = document.getElementById('employee_id');
-      if (selectedSite && selectedBoss && empSelect.options.length > 0) {
+      if (siteId && bossId && empSelect.options.length > 0) {
         empSelect.disabled = false;
+      }
+      // If boss_id is missing, auto-submit the form to select the first boss and all employees
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('site_id') && !params.get('boss_id')) {
+        document.getElementById('chart-filter-form').submit();
       }
     }, 0);
   });
