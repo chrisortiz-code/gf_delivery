@@ -19,6 +19,23 @@
     .maestro-inputs { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-left: 0.5rem; }
     .maestro-input { width: 120px; padding: 4px; border: 1px solid #ccc; border-radius: 4px; }
     .maestro-label { font-size: 0.8rem; color: #666; margin-right: 2px; }
+    .site-dropdown {
+        padding: 8px 16px;
+        border: 2px solid #be4272;
+        border-radius: 6px;
+        font-size: 1.1rem;
+        background: #fff;
+        color: #2a366b;
+        font-weight: bold;
+        margin-left: 1em;
+        margin-bottom: 1em;
+        min-width: 220px;
+    }
+    .site-dropdown option[value="__new__"] {
+        color: #be4272;
+        font-weight: bold;
+        background: #f9e6ef;
+    }
 </style>
 {% endblock %}
 
@@ -35,111 +52,148 @@
         </div>
       {% endif %}
     {% endwith %}
-    {% for site in sites %}
-    <div class="site-section">
-        <form method="POST" action="/update_site" style="display: inline;">
-            <input type="hidden" name="site_id" value="{{ site.id }}">
-            <div class="site-title">
-                <div style="margin-bottom: 0.5rem;">
-                    <label style="font-weight: bold;">Location:</label>
-                    <input type="text" name="location" value="{{ site.location }}" style="margin-left: 0.5rem; padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
-                    <label style="font-weight: bold; margin-left: 1rem;">Maestros:</label>
-                    <div class="maestro-inputs" id="maestro-inputs-{{ site.id }}" style="display: inline-flex; align-items: flex-end;">
-                        {% set maestro_list = site.maestro.split(';') if site.maestro else [''] %}
-                        {% for i in range(5) %}
-                            <input type="text" name="maestro_{{ i + 1 }}" value="{{ maestro_list[i] if i < maestro_list|length else '' }}" class="maestro-input" placeholder="Maestro" style="display: {{ 'inline-block' if i == 0 or (maestro_list[i]|default('')) else 'none' }}; margin-right: 5px;">
-                        {% endfor %}
-                        <button type="button" class="add-maestro-btn" onclick="addMaestroField('{{ site.id }}')" style="margin-left: 8px; height: 32px; font-size: 1rem; padding: 4px 10px;">Add Maestro</button>
-                        <button type="submit" class="edit-btn" style="margin-left: 0.5rem; padding: 4px 10px; height: 32px;">Update</button>
-                    </div>
-                </div>
-            </div>
-        </form>
-        <form method="POST" action="/delete_site" style="display: inline;">
-            <input type="hidden" name="site_id" value="{{ site.id }}">
-            <button type="submit" class="delete-btn" style="margin-left: 0.5rem; margin-bottom: 10px;" onclick="return confirm('Are you sure you want to delete this site?')">Delete Site</button>
-        </form>
-        
-        <table>
-            <thead>
-                <tr>
-                    <th>Employee Name</th>
-                    <th class="actions">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for emp in site.employees %}
-                <tr>
-                    <td>
-                        <input type="text" id="emp_name_{{ emp.id }}" value="{{ emp.name }}" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 4px;">
-                    </td>
-                    <td class="actions">
-                        <form method="POST" action="/update_employee" style="display: inline;">
-                            <input type="hidden" name="employee_id" value="{{ emp.id }}">
-                            <input type="hidden" name="site_id" value="{{ site.id }}">
-                            <input type="hidden" name="employee_name" id="emp_name_hidden_{{ emp.id }}">
-                            <button type="submit" class="edit-btn" onclick="document.getElementById('emp_name_hidden_{{ emp.id }}').value = document.getElementById('emp_name_{{ emp.id }}').value;">Update</button>
-                        </form>
-                        <form method="POST" action="/delete_employee" style="display: inline;">
-                            <input type="hidden" name="employee_id" value="{{ emp.id }}">
-                            <button type="submit" class="delete-btn" onclick="return confirm('Are you sure you want to delete this employee?')">Delete</button>
-                        </form>
-                    </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="2"><em>No employees for this site.</em></td></tr>
-                {% endfor %}
-                <!-- Empty row for adding new employee -->
-                <tr>
-                    <form method="POST" action="/add_employee">
-                        <input type="hidden" name="site_id" value="{{ site.id }}">
-                        <td>
-                            <input type="text" name="employee_name" placeholder="Enter new employee name" style="width: 100%; padding: 4px; border: 1px solid #ccc; border-radius: 4px;" required>
-                        </td>
-                        <td class="actions">
-                            <button type="submit" class="add-btn">Add</button>
-                        </td>
-                    </form>
-                </tr>
-            </tbody>
-        </table>
+    <div style="margin-bottom:2em;">
+      <label for="site-select" style="font-weight:bold;">Select Site:</label>
+      <select id="site-select" class="site-dropdown" onchange="onSiteChange()">
+        <option value="">-- Select Site --</option>
+        {% for site_id, location in sites %}
+          <option value="{{ site_id }}">{{ location }}</option>
+        {% endfor %}
+        <option value="__new__" style="font-weight:bold; color:#be4272;">NEW SITE</option>
+      </select>
     </div>
-    {% endfor %}
-    
-    <!-- New Site Section -->
-    <div class="site-section">
-        <form method="POST" action="/add_site" style="display: inline;">
-            <div class="site-title">
-                <div style="margin-bottom: 0.5rem;">
-                    <label style="font-weight: bold;">Location:</label>
-                    <input type="text" name="location" value="Set Location" style="margin-left: 0.5rem; padding: 4px; border: 1px solid #ccc; border-radius: 4px;" required>
-                    <label style="font-weight: bold; margin-left: 1rem;">Maestros:</label>
-                    <div class="maestro-inputs" id="maestro-inputs-new" style="display: inline-flex; align-items: flex-end;">
-                        {% for i in range(5) %}
-                            <input type="text" name="maestro_{{ i + 1 }}" value="{{ 'Boss' if i == 0 else '' }}" class="maestro-input" placeholder="Maestro" style="display: {{ 'inline-block' if i == 0 else 'none' }}; margin-right: 5px;">
-                        {% endfor %}
-                        <button type="button" class="add-maestro-btn" onclick="addMaestroField('new')" style="margin-left: 8px; font-size: 1rem; padding: 4px 10px;">Add Maestro</button>
-                        <button type="submit" class="add-btn" style="margin-left: 0.5rem; padding: 4px 10px;">Add Site</button>
-                    </div>
-                </div>
-            </div>
-        </form>
-    </div>
+    <div id="site-manage-section"></div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 {{ super() }}
 <script>
-function addMaestroField(siteId) {
-    const container = document.getElementById('maestro-inputs-' + siteId);
-    const inputs = container.querySelectorAll('.maestro-input');
-    for (let i = 0; i < inputs.length; i++) {
-        if (inputs[i].style.display === 'none') {
-            inputs[i].style.display = 'inline-block';
-            break;
-        }
+const siteBosses = {{ site_bosses|tojson }};
+const sites = {{ sites|tojson }};
+function onSiteChange() {
+  const select = document.getElementById('site-select');
+  const section = document.getElementById('site-manage-section');
+  const siteId = select.value;
+  section.innerHTML = '';
+  if (!siteId) return;
+  if (siteId === '__new__') {
+    // Show new site form
+    section.innerHTML = `
+      <div class="site-section">
+        <form method="POST" action="/add_site" style="display: inline;">
+          <div class="site-title">
+            <div style="margin-bottom: 0.5rem;">
+              <label style="font-weight: bold;">Location:</label>
+              <input type="text" name="location" value="" style="margin-left: 0.5rem; padding: 4px; border: 1px solid #ccc; border-radius: 4px;" required>
+              <label style="font-weight: bold; margin-left: 1rem;">Bosses:</label>
+              <div class="maestro-inputs" id="maestro-inputs-new" style="display: inline-flex; align-items: flex-end;">
+                <input type="text" name="maestro" value="Boss" class="maestro-input" placeholder="Boss" style="margin-right: 5px;">
+                <button type="button" class="add-maestro-btn" onclick="addMaestroFieldNew()" style="margin-left: 8px; font-size: 1rem; padding: 4px 10px;">Add Boss</button>
+                <button type="submit" class="add-btn" style="margin-left: 0.5rem; padding: 4px 10px;">Add Site</button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+    `;
+    return;
+  }
+  // Show bosses and employees for selected site
+  const bosses = siteBosses[siteId];
+  let html = '';
+  // Bosses row at the top
+  html += `<div class="site-section"><div class="site-title" style="display:flex;align-items:center;gap:1em;"><span style="font-weight:bold;">Bosses:</span>`;
+  for (const bossId in bosses) {
+    const boss = bosses[bossId];
+    html += `<form method="POST" action="/update_boss" style="display:inline-flex;align-items:center;gap:0.5em;">
+      <input type="hidden" name="boss_id" value="${bossId}">
+      <input type="hidden" name="site_id" value="${siteId}">
+      <input type="text" name="boss_name" value="${boss.name}" style="padding:4px; border-radius:4px; border:1px solid #ccc; min-width:100px;">
+      <button type="submit" class="edit-btn">Update</button>
+    </form>`;
+    html += `<form method="POST" action="/delete_boss" style="display:inline-flex;align-items:center;gap:0.5em;">
+      <input type="hidden" name="boss_id" value="${bossId}">
+      <input type="hidden" name="site_id" value="${siteId}">
+      <button type="submit" class="delete-btn" onclick="return confirm('Delete this boss?')">Delete</button>
+    </form>`;
+  }
+  // Extra empty input for adding a new boss
+  html += `<form method="POST" action="/add_boss" style="display:inline-flex;align-items:center;gap:0.5em;">
+    <input type="hidden" name="site_id" value="${siteId}">
+    <input type="text" name="boss_name" placeholder="New Boss Name" class="maestro-input" style="min-width:100px;">
+    <button type="submit" class="add-btn">Add</button>
+  </form>`;
+  html += `</div>`;
+  // Now show each boss's employees
+  for (const bossId in bosses) {
+    const boss = bosses[bossId];
+    html += `<div style="margin-top:1.5em;">
+      <div class="site-title">Boss: <b>${boss.name}</b></div>
+      <table><thead><tr><th>Employee Name</th><th>Current Owing</th><th>Actions</th></tr></thead><tbody>`;
+    for (const emp of boss.employees) {
+      html += `<tr>
+        <td><input type="text" value="${emp.name}" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;"></td>
+        <td>${emp.current_owing}</td>
+        <td class="actions">
+          <form method="POST" action="/update_employee" style="display:inline;">
+            <input type="hidden" name="employee_id" value="${emp.id}">
+            <input type="hidden" name="boss_id" value="${bossId}">
+            <input type="hidden" name="site_id" value="${siteId}">
+            <input type="hidden" name="employee_name" value="${emp.name}">
+            <button type="submit" class="edit-btn">Update</button>
+          </form>
+          <form method="POST" action="/delete_employee" style="display:inline;">
+            <input type="hidden" name="employee_id" value="${emp.id}">
+            <input type="hidden" name="site_id" value="${siteId}">
+            <button type="submit" class="delete-btn" onclick="return confirm('Delete this employee?')">Delete</button>
+          </form>
+          <form method="POST" action="/move_employee" style="display:inline;">
+            <input type="hidden" name="employee_id" value="${emp.id}">
+            <input type="hidden" name="site_id" value="${siteId}">
+            <select name="new_boss_id" style="margin-left:8px;">
+              ${Object.entries(bosses).map(([bid, b]) => `<option value="${bid}"${bid==bossId?' selected':''}>${b.name}</option>`).join('')}
+            </select>
+            <button type="submit" class="edit-btn">Move</button>
+          </form>
+        </td>
+      </tr>`;
     }
+    // Add new employee row
+    html += `<tr>
+      <form method="POST" action="/add_employee">
+        <input type="hidden" name="boss_id" value="${bossId}">
+        <input type="hidden" name="site_id" value="${siteId}">
+        <td><input type="text" name="employee_name" placeholder="Enter new employee name" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" required></td>
+        <td></td>
+        <td class="actions"><button type="submit" class="add-btn">Add</button></td>
+      </form>
+    </tr>`;
+    html += `</tbody></table></div>`;
+  }
+  html += `</div>`;
+  section.innerHTML = html;
 }
+function addMaestroFieldNew() {
+  const container = document.getElementById('maestro-inputs-new');
+  if (!container) return;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.name = 'maestro';
+  input.className = 'maestro-input';
+  input.placeholder = 'Boss';
+  input.style.marginRight = '5px';
+  container.insertBefore(input, container.querySelector('.add-maestro-btn'));
+}
+document.addEventListener('DOMContentLoaded', function() {
+  // Set dropdown to site_id from query string if present
+  const params = new URLSearchParams(window.location.search);
+  const siteId = params.get('site_id');
+  if (siteId) {
+    const select = document.getElementById('site-select');
+    select.value = siteId;
+  }
+  onSiteChange();
+});
 </script>
 {% endblock %} 

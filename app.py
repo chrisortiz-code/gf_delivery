@@ -50,15 +50,30 @@ def smart_capitalize(name):
 def index():
     clear_paid_orders_for_all()
     products = get_products()
-    # Fetch all sites and employees for the checkout form
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, location, maestro FROM sites")
+    # Load all sites
+    cursor.execute("SELECT id, location FROM sites")
     sites = cursor.fetchall()
-    cursor.execute("SELECT id, name, site_id FROM employees")
+    # Load all bosses
+    cursor.execute("SELECT id, name, site_id FROM bosses")
+    bosses = cursor.fetchall()
+    # Load all employees
+    cursor.execute("SELECT id, name, boss_id FROM employees")
     employees = cursor.fetchall()
     conn.close()
-    return render_template("index.html", products=products, sites=sites, employees=employees)
+    # Build a structure: {site_id: {boss_id: {boss_name, employees: [...]}}}
+    site_bosses = {}
+    for site_id, location in sites:
+        site_bosses[site_id] = {}
+    for boss_id, boss_name, site_id in bosses:
+        if site_id in site_bosses:
+            site_bosses[site_id][str(boss_id)] = {'name': boss_name, 'employees': []}
+    for emp_id, emp_name, boss_id in employees:
+        for site_id, bosses_dict in site_bosses.items():
+            if str(boss_id) in bosses_dict:
+                bosses_dict[str(boss_id)]['employees'].append({'id': emp_id, 'name': emp_name})
+    return render_template("index.html", products=products, sites=sites, site_bosses=site_bosses)
 
 @app.route("/checkout", methods=["POST"])
 def checkout():
@@ -123,12 +138,17 @@ def submit_order():
     date_str = timestamp.split()[0]  # Get just the date part
     employee_id = session['pending_order']['employee_id']
     
-    # Get site_id for the employee
+    # Get boss_id for the employee, then site_id for the boss
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT site_id FROM employees WHERE id = ?", (employee_id,))
-    site_result = cursor.fetchone()
-    site_id = site_result[0] if site_result else "unknown"
+    cursor.execute("SELECT boss_id FROM employees WHERE id = ?", (employee_id,))
+    boss_result = cursor.fetchone()
+    boss_id = boss_result[0] if boss_result else None
+    site_id = "unknown"
+    if boss_id:
+        cursor.execute("SELECT site_id FROM bosses WHERE id = ?", (boss_id,))
+        site_result = cursor.fetchone()
+        site_id = site_result[0] if site_result else "unknown"
     conn.close()
     
     # Create filename
@@ -352,26 +372,25 @@ def chart():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     error = None
-    # Handle payment submission if admin and POST
+    # Handle payment submission if admin and POST (leave as is for now)
     if request.method == "POST" and session.get("is_admin"):
         site_id = request.form.get("site_id")
+        boss_id = request.form.get("boss_id") or request.values.get("boss_id")
         employee_id = request.form.get("employee_id")
         amount = request.form.get("amount")
         note = request.form.get("note")
         payment_key = request.form.get("payment_key")
-        
         # Check if this payment key has already been processed
         if payment_key and payment_key not in session.get('processed_payment_keys', []):
             # Store the payment key to prevent duplicate processing
             if 'processed_payment_keys' not in session:
                 session['processed_payment_keys'] = []
             session['processed_payment_keys'].append(payment_key)
-            
-            # Allow payment for all employees at a site
+            # Allow payment for all employees under a boss
             if employee_id and amount:
-                if employee_id == "all" and site_id:
-                    # Calculate total debt for all employees at this site
-                    c.execute("SELECT id FROM employees WHERE site_id = ?", (site_id,))
+                if employee_id == "all" and boss_id:
+                    # Calculate total debt for all employees under this boss
+                    c.execute("SELECT id FROM employees WHERE boss_id = ?", (boss_id,))
                     emp_ids = [row[0] for row in c.fetchall()]
                     total_debt = 0
                     for emp_id in emp_ids:
@@ -384,18 +403,18 @@ def chart():
                     except Exception:
                         amount_int = -1
                     if amount_int != total_debt or total_debt == 0:
-                        error = f"All Employees payment must match the total debt for this site (currently {total_debt})."
+                        error = f"All Employees payment must match the total debt for this boss (currently {total_debt})."
                         flash(error, 'error')
                         conn.close()
                         return redirect(request.url)
                     # Insert payment for all employees (as before)
-                    c.execute("SELECT id FROM employees WHERE site_id = ? LIMIT 1", (site_id,))
+                    c.execute("SELECT id FROM employees WHERE boss_id = ? LIMIT 1", (boss_id,))
                     first_emp = c.fetchone()
                     if first_emp:
                         timestamp = datetime.today().strftime("%Y-%m-%d %H:%M")
                         all_note = f"ALL EMPLOYEES: {note}" if note else "ALL EMPLOYEES"
                         c.execute("INSERT INTO payments (employee_id, amount, date, note) VALUES (?, ?, ?, ?)", (first_emp[0], amount_int, timestamp, all_note))
-                        # Now clear all debts for all employees at this site
+                        # Now clear all debts for all employees under this boss
                         for emp_id in emp_ids:
                             # Move all orders to profit and delete them
                             c.execute("SELECT id, items, date FROM orders WHERE employee_id = ?", (emp_id,))
@@ -416,27 +435,39 @@ def chart():
             # After processing payment, redirect to GET to prevent duplicate submissions
             conn.close()
             return redirect(request.url)
-    # Fetch all sites and employees for the filter form
-    c.execute("SELECT id, location, maestro FROM sites")
+    # Fetch all sites
+    c.execute("SELECT id, location FROM sites")
     sites = c.fetchall()
-    c.execute("SELECT id, site_id, name FROM employees")
+    # Fetch all bosses
+    c.execute("SELECT id, name, site_id FROM bosses")
+    bosses = c.fetchall()
+    # Fetch all employees
+    c.execute("SELECT id, name, boss_id FROM employees")
     employees = c.fetchall()
-
-    # Get selected site and employee from form/query params
+    # Build a structure: {site_id: {boss_id: {boss_name, employees: [...]}}}
+    site_bosses = {}
+    for site_id, location in sites:
+        site_bosses[site_id] = {}
+    for boss_id, boss_name, site_id in bosses:
+        if site_id in site_bosses:
+            site_bosses[site_id][str(boss_id)] = {'name': boss_name, 'employees': []}
+    for emp_id, emp_name, boss_id in employees:
+        for site_id, bosses_dict in site_bosses.items():
+            if str(boss_id) in bosses_dict:
+                bosses_dict[str(boss_id)]['employees'].append({'id': emp_id, 'name': emp_name})
+    # --- Filtering logic ---
     selected_site = request.values.get("site_id")
+    boss_id_list = request.values.getlist("boss_id")
+    selected_boss = boss_id_list[0] if boss_id_list else None
     selected_employee = request.values.get("employee_id")
-    # If a site is selected but employee is blank, treat as 'all'
-    if selected_site and not selected_employee:
-        selected_employee = 'all'
-
-    # Filter employees for the selected site
-    filtered_employees = [e for e in employees if not selected_site or e[1] == selected_site]
-
-    # If 'All' is selected, show all employees for the site
-    show_all = (selected_employee == "all")
+    filtered_employees = []
+    if selected_site and selected_boss and selected_boss in site_bosses[selected_site]:
+        filtered_employees = site_bosses[selected_site][selected_boss]['employees']
+    # Orders/payments filtering
     orders = []
+    payments = []
     grand_total = 0
-    if selected_site and (selected_employee and not show_all):
+    if selected_employee and selected_employee != 'all':
         # Show orders/payments for one employee
         c.execute("SELECT id, items, date, signature FROM orders WHERE employee_id = ? ORDER BY date DESC", (selected_employee,))
         raw_orders = c.fetchall()
@@ -446,8 +477,8 @@ def chart():
             orders.append((order[0], order[1], order[2], selected_employee, order_total, order[3]))
         c.execute("SELECT amount, date, note FROM payments WHERE employee_id = ? ORDER BY date DESC", (selected_employee,))
         payments = c.fetchall()
-    elif selected_site and show_all:
-        emp_ids = [e[0] for e in filtered_employees]
+    elif selected_employee == 'all' and selected_boss and selected_site and selected_boss in site_bosses[selected_site]:
+        emp_ids = [e['id'] for e in site_bosses[selected_site][selected_boss]['employees']]
         if emp_ids:
             qmarks = ','.join(['?']*len(emp_ids))
             c.execute(f"SELECT id, items, date, employee_id, signature FROM orders WHERE employee_id IN ({qmarks}) ORDER BY date DESC", emp_ids)
@@ -458,22 +489,15 @@ def chart():
                 orders.append((order[0], order[1], order[2], order[3], order_total, order[4]))
             c.execute(f"SELECT employee_id, amount, date, note FROM payments WHERE employee_id IN ({qmarks}) ORDER BY date DESC", emp_ids)
             payments = c.fetchall()
-        else:
-            payments = []
-            orders = []
     else:
-        payments = []
         orders = []
+        payments = []
     conn.close()
-
     # Build all_entries in Python, with parsed_items for orders
     all_entries = []
     order_total = 0
     payment_total = 0
-    
-    # Create employee name lookup - convert IDs to strings for consistent matching
-    emp_names = {str(emp[0]): emp[2] for emp in employees}
-    
+    emp_names = {str(emp[0]): emp[1] for emp in employees}
     for order in orders:
         parsed_items = []
         for item in order[1].split(","):
@@ -501,14 +525,8 @@ def chart():
         })
         order_total += order[4]
     for payment in payments:
-        if show_all:
-            emp_id, amount, date, note = payment
-        else:
-            emp_id, amount, date, note = selected_employee, *payment
-        
-        # Check if this is an "all employees" payment
+        emp_id, amount, date, note = payment
         is_all_employees = note and note.startswith("ALL EMPLOYEES")
-        
         all_entries.append({
             'type': 'payment',
             'employee_id': emp_id,
@@ -522,26 +540,13 @@ def chart():
         payment_total += amount
     all_entries.sort(key=lambda x: x['date'], reverse=False)  # Oldest first
     net_total = order_total - payment_total
-
-    import uuid
-    payment_key = str(uuid.uuid4())
-    
-    # Get maestro for selected site
-    selected_maestro = None
-    if selected_site:
-        for site_id, location, maestro in sites:
-            if site_id == selected_site:
-                selected_maestro = maestro
-                break
-    
     return render_template("chart.html", 
         sites=sites, 
-        employees=employees, 
-        filtered_employees=filtered_employees,
+        site_bosses=site_bosses,
         selected_site=selected_site,
+        selected_boss=selected_boss,
         selected_employee=selected_employee,
-        selected_maestro=selected_maestro,
-        show_all=show_all,
+        filtered_employees=filtered_employees,
         orders=orders,
         payments=payments,
         grand_total=grand_total,
@@ -549,9 +554,7 @@ def chart():
         order_total=order_total,
         payment_total=payment_total,
         net_total=net_total,
-        payment_key=payment_key,
-        error=error,
-        messages=get_flashed_messages(with_categories=True))
+        error=error)
 
 @app.route("/del_order", methods = ["POST"])
 def del_order():
@@ -626,45 +629,25 @@ def view_sites():
 def manage():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, location, maestro FROM sites")
+    cursor.execute("SELECT id, location FROM sites")
     sites = cursor.fetchall()
-    site_data = []
-    for site_id, location, maestro in sites:
-        cursor.execute("SELECT id, current_owing, items, name FROM employees WHERE site_id = ?", (site_id,))
-        employees = cursor.fetchall()
-        employees_parsed = []
-        for emp in employees:
-            emp_id, current_owing, items, name = emp
-            # Parse items
-            parsed_items = []
-            for item in (items or '').split(","):
-                item = item.strip()
-                if ":" in item and ";" in item:
-                    try:
-                        name_price, qty = item.split(";", 1)
-                        iname, price = name_price.split(":", 1)
-                        parsed_items.append({
-                            'name': iname.strip(),
-                            'price': int(price.strip()),
-                            'qty': int(qty.strip())
-                        })
-                    except Exception:
-                        continue
-            employees_parsed.append({
-                'id': emp_id,
-                'name': name or f'Employee #{emp_id}',
-                'current_owing': current_owing,
-                'items': items,
-                'parsed_items': parsed_items
-            })
-        site_data.append({
-            'id': site_id,
-            'location': location,
-            'maestro': maestro,
-            'employees': employees_parsed
-        })
+    cursor.execute("SELECT id, name, site_id FROM bosses")
+    bosses = cursor.fetchall()
+    cursor.execute("SELECT id, name, boss_id, current_owing, items FROM employees")
+    employees = cursor.fetchall()
     conn.close()
-    return render_template("manage.html", sites=site_data)
+    # Build a structure: {site_id: {boss_id: {boss_name, employees: [...]}}}
+    site_bosses = {}
+    for site_id, location in sites:
+        site_bosses[site_id] = {}
+    for boss_id, boss_name, site_id in bosses:
+        if site_id in site_bosses:
+            site_bosses[site_id][str(boss_id)] = {'name': boss_name, 'employees': []}
+    for emp_id, emp_name, boss_id, current_owing, items in employees:
+        for site_id, bosses_dict in site_bosses.items():
+            if str(boss_id) in bosses_dict:
+                bosses_dict[str(boss_id)]['employees'].append({'id': emp_id, 'name': emp_name, 'current_owing': current_owing, 'items': items})
+    return render_template("manage.html", sites=sites, site_bosses=site_bosses)
 
 @app.route("/update_site", methods=["POST"])
 def update_site():
@@ -674,14 +657,9 @@ def update_site():
     site_id = request.form.get("site_id")
     location = request.form.get("location")
     
-    # Collect maestro inputs (maestro_1 through maestro_5)
-    maestro_inputs = []
-    for i in range(1, 6):
-        maestro_value = request.form.get(f"maestro_{i}", "").strip()
-        if maestro_value:  # Only add non-empty values
-            maestro_inputs.append(maestro_value)
-    
-    # Join with semicolons
+    # Collect all maestro inputs (all with name 'maestro')
+    maestro_inputs = request.form.getlist("maestro")
+    maestro_inputs = [m.strip() for m in maestro_inputs if m.strip()]
     maestro = ";".join(maestro_inputs)
     
     conn = sqlite3.connect(DB_PATH)
@@ -750,31 +728,120 @@ def update_employee():
 def delete_employee():
     if not session.get("is_admin"):
         return "Unauthorized", 403
-    
     employee_id = request.form.get("employee_id")
-    
+    site_id = request.form.get("site_id")
+    if not employee_id:
+        return redirect("/manage")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    # Prevent delete if employee has current_owing > 0
+    cursor.execute("SELECT current_owing FROM employees WHERE id = ?", (employee_id,))
+    row = cursor.fetchone()
+    if row and row[0] and int(row[0]) > 0:
+        conn.close()
+        flash("Cannot delete employee: employee still has outstanding owings.", "error")
+        if site_id:
+            return redirect(f"/manage?site_id={site_id}")
+        return redirect("/manage")
     cursor.execute("DELETE FROM employees WHERE id = ?", (employee_id,))
     conn.commit()
     conn.close()
-    
+    if site_id:
+        return redirect(f"/manage?site_id={site_id}")
+    return redirect("/manage")
+
+@app.route("/add_boss", methods=["POST"])
+def add_boss():
+    if not session.get("is_admin"):
+        return "Unauthorized", 403
+    site_id = request.form.get("site_id")
+    boss_name = request.form.get("boss_name")
+    if not site_id or not boss_name:
+        return redirect("/manage")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO bosses (name, site_id) VALUES (?, ?)", (boss_name, site_id))
+    conn.commit()
+    conn.close()
+    return redirect(f"/manage?site_id={site_id}")
+
+@app.route("/update_boss", methods=["POST"])
+def update_boss():
+    if not session.get("is_admin"):
+        return "Unauthorized", 403
+    boss_id = request.form.get("boss_id")
+    boss_name = request.form.get("boss_name")
+    site_id = request.form.get("site_id")
+    if not boss_id or not boss_name:
+        return redirect("/manage")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE bosses SET name = ? WHERE id = ?", (boss_name, boss_id))
+    conn.commit()
+    conn.close()
+    if site_id:
+        return redirect(f"/manage?site_id={site_id}")
+    return redirect("/manage")
+
+@app.route("/delete_boss", methods=["POST"])
+def delete_boss():
+    if not session.get("is_admin"):
+        return "Unauthorized", 403
+    boss_id = request.form.get("boss_id")
+    site_id = request.form.get("site_id")
+    if not boss_id:
+        return redirect("/manage")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    # Only allow delete if no employees for this boss
+    cursor.execute("SELECT COUNT(*) FROM employees WHERE boss_id = ?", (boss_id,))
+    if cursor.fetchone()[0] > 0:
+        conn.close()
+        flash("Cannot delete boss: there are still employees assigned. Move or delete all employees first.", "error")
+        if site_id:
+            return redirect(f"/manage?site_id={site_id}")
+        return redirect("/manage")
+    cursor.execute("DELETE FROM bosses WHERE id = ?", (boss_id,))
+    conn.commit()
+    conn.close()
+    if site_id:
+        return redirect(f"/manage?site_id={site_id}")
+    return redirect("/manage")
+
+@app.route("/move_employee", methods=["POST"])
+def move_employee():
+    if not session.get("is_admin"):
+        return "Unauthorized", 403
+    employee_id = request.form.get("employee_id")
+    new_boss_id = request.form.get("new_boss_id")
+    site_id = request.form.get("site_id")
+    if not employee_id or not new_boss_id:
+        return redirect("/manage")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE employees SET boss_id = ? WHERE id = ?", (new_boss_id, employee_id))
+    conn.commit()
+    conn.close()
+    if site_id:
+        return redirect(f"/manage?site_id={site_id}")
     return redirect("/manage")
 
 @app.route("/add_employee", methods=["POST"])
 def add_employee():
     if not session.get("is_admin"):
         return "Unauthorized", 403
-    
-    site_id = request.form.get("site_id")
+    boss_id = request.form.get("boss_id")
     employee_name = request.form.get("employee_name")
-    
+    site_id = request.form.get("site_id")
+    if not boss_id or not employee_name:
+        return redirect("/manage")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO employees (name, site_id, current_owing, items) VALUES (?, ?, 0, '')", (employee_name, site_id))
+    cursor.execute("INSERT INTO employees (name, boss_id, current_owing, items) VALUES (?, ?, 0, '')", (employee_name, boss_id))
     conn.commit()
     conn.close()
-    
+    if site_id:
+        return redirect(f"/manage?site_id={site_id}")
     return redirect("/manage")
 
 def rand_str(length=8):
@@ -787,19 +854,13 @@ def add_site():
     
     location = request.form.get("location")
     
-    # Collect maestro inputs (maestro_1 through maestro_5)
-    maestro_inputs = []
-    for i in range(1, 6):
-        maestro_value = request.form.get(f"maestro_{i}", "").strip()
-        if maestro_value:  # Only add non-empty values
-            maestro_inputs.append(maestro_value)
-    
-    # Join with semicolons
+    # Collect all maestro inputs (all with name 'maestro')
+    maestro_inputs = request.form.getlist("maestro")
+    maestro_inputs = [m.strip() for m in maestro_inputs if m.strip()]
     maestro = ";".join(maestro_inputs)
     
     # Generate a random site ID
     site_id = rand_str(8)
-    
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()

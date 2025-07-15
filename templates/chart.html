@@ -5,47 +5,34 @@
 {% block header_title %}Order & Payment History{% endblock %}
 
 {% block extra_head %}
-<style>
-  table {margin:0 auto; max-width:auto}
-  .content * { color:black; }
-  table{ border-collapse: collapse; width: 85%; }
-  th, td { border: 1px solid #181818; }
-  th, button {background: #ccc ; color:#181818 }
-  .delete-btn{ background-color:#e74c3c; color:white; border:none; border-radius:50%; width:24px;height:24px; font-size: 16px; line-height:0; cursor:pointer; text-align:center; padding:0; }
-  .delete-btn:hover{background-color: #c0392b;}
-  .filter-form { margin: 2em auto; text-align: center; }
-  .filter-form label { margin-right: 1em; }
-  .filter-form select { margin-left: 1em; }
-</style>
+<link rel="stylesheet" href="/static/styles.css">
 {% endblock %}
 
 {% block content %}
-<div style="text-align:center" class="content">
+<div>
 {% if selected_maestro %}
-  <p style="margin-top: 0.5em; font-style: italic; color: #666;">Maestros: {{ selected_maestro.split(';') | join(', ') }}</p>
+  <p>Maestros: {{ selected_maestro.split(';') | join(', ') }}</p>
 {% endif %}
-<form class="filter-form" method="get" action="/chart">
-  <div>
-    <label><b>Select Location:</b></label>
-    {% for site_id, location,_ in sites %}
-      <label style="margin-right: 1em;">
-        <input type="radio" name="site_id" value="{{ site_id }}" {% if site_id == selected_site %}checked{% endif %} onchange="this.form.submit()"> {{ location }}
-      </label>
-    {% endfor %}
-  </div>
-  <div style="margin-top:1em;">
-    <label for="employee_id"><b>Select Employee:</b></label>
-    <select name="employee_id" id="employee_id" onchange="this.form.submit()" {% if not selected_site %}disabled{% endif %}>
-      <option value="">-- Select Employee --</option>
-      {% for emp_id, emp_site_id, emp_name in filtered_employees %}
-        <option value="{{ emp_id }}" {% if emp_id|string == selected_employee %}selected{% endif %}>{{ emp_name or ('Employee #' ~ emp_id) }}</option>
+<div style="text-align:center">
+  <form method="get" action="/chart" id="chart-filter-form">
+    <div>
+      <label><b>Select Location:</b></label>
+      {% for site_id, location in sites %}
+        <label>
+          <input type="radio" name="site_id" value="{{ site_id }}" onchange="updateBosses()"> {{ location }}
+        </label>
       {% endfor %}
-      {% if selected_site %}
-        <option value="all" {% if show_all or (not selected_employee) %}selected{% endif %}>All Employees</option>
-      {% endif %}
-    </select>
-  </div>
-</form>
+    </div>
+    <div id="bosses-section"></div>
+    <input type="hidden" name="boss_id" id="hidden_boss_id">
+    <div>
+      <label for="employee_id"><b>Select Employee:</b></label>
+      <select name="employee_id" id="employee_id" onchange="submitWithBoss()" disabled>
+        <option value="">-- Select Employee --</option>
+      </select>
+    </div>
+  </form>
+</div>
 
 {% if orders or payments %}
   <h4 style="margin-top:2em;">Orders & Payments</h4>
@@ -110,7 +97,7 @@
     </tbody>
   </table>
 {% else %}
-  <p style="color:gray;">No orders or payments found for this selection.</p>
+  <div style="text-align:center;"><p style="color:gray;">No orders or payments found for this selection.</p></div>
 {% endif %}
 
 {% if session.get('is_admin') and selected_employee %}
@@ -127,7 +114,7 @@
       <label for="note">Note (optional):</label>
       <input type="text" name="note" id="note" style="width:100%; padding:6px;">
     </div>
-    <button type="submit" style="background:#5a866b; color:white; padding:8px 18px; border:none; border-radius:6px;">Add Payment</button>
+    <button type="submit" class="centered-btn" style="background:#5a866b; color:white; padding:8px 18px; border:none; border-radius:6px;">Add Payment</button>
   </form>
 {% endif %}
 
@@ -137,17 +124,94 @@
 
 {% block scripts %}
 <script>
-  // Enable employee dropdown when a site is selected
-  document.addEventListener('DOMContentLoaded', function() {
+  const siteBosses = {{ site_bosses|tojson }};
+  let selectedSite = null;
+  let selectedBoss = null;
+  function updateBosses() {
     const siteRadios = document.querySelectorAll('input[name="site_id"]');
-    const empSelect = document.getElementById('employee_id');
-    function updateEmpDisabled() {
-      let checked = false;
-      siteRadios.forEach(r => { if (r.checked) checked = true; });
-      empSelect.disabled = !checked;
+    let siteId = null;
+    siteRadios.forEach(r => { if (r.checked) siteId = r.value; });
+    selectedSite = siteId;
+    const bossesSection = document.getElementById('bosses-section');
+    bossesSection.innerHTML = '';
+    document.getElementById('employee_id').innerHTML = '<option value="all">All Employees</option>';
+    document.getElementById('employee_id').disabled = true;
+    document.getElementById('hidden_boss_id').value = '';
+    if (!siteId) {
+      bossesSection.style.display = 'none';
+      return;
     }
-    siteRadios.forEach(r => r.addEventListener('change', updateEmpDisabled));
-    updateEmpDisabled();
+    const bosses = siteBosses[siteId];
+    if (!bosses || Object.keys(bosses).length === 0) {
+      bossesSection.style.display = 'none';
+      return;
+    }
+    bossesSection.style.display = 'block';
+    let html = '<div><b>Select Boss:</b><br>';
+    for (const bossId in bosses) {
+      html += `<label><input type="radio" name="boss_id" value="${bossId}" onchange="updateEmployees()"> ${bosses[bossId].name}</label>`;
+    }
+    html += '</div>';
+    bossesSection.innerHTML = html;
+  }
+  function updateEmployees() {
+    const bossRadios = document.querySelectorAll('input[name="boss_id"]');
+    let bossId = null;
+    bossRadios.forEach(r => { if (r.checked) bossId = r.value; });
+    selectedBoss = bossId;
+    document.getElementById('hidden_boss_id').value = bossId || '';
+    const empSelect = document.getElementById('employee_id');
+    empSelect.innerHTML = '<option value="all">All Employees</option>';
+    empSelect.disabled = true;
+    if (!selectedSite || !bossId) return;
+    const employees = siteBosses[selectedSite][bossId].employees;
+    for (const emp of employees) {
+      const opt = document.createElement('option');
+      opt.value = emp.id;
+      opt.textContent = emp.name;
+      empSelect.appendChild(opt);
+    }
+    if (employees.length > 0) empSelect.disabled = false;
+  }
+  function submitWithBoss() {
+    // Ensure boss_id is set before submitting
+    const bossRadios = document.querySelectorAll('input[name="boss_id"]');
+    let bossId = null;
+    bossRadios.forEach(r => { if (r.checked) bossId = r.value; });
+    document.getElementById('hidden_boss_id').value = bossId || '';
+    document.getElementById('chart-filter-form').submit();
+  }
+  document.addEventListener('DOMContentLoaded', function() {
+    // Read query params
+    const params = new URLSearchParams(window.location.search);
+    const siteId = params.get('site_id');
+    const bossId = params.get('boss_id');
+    const employeeId = params.get('employee_id');
+    // Set site radio
+    if (siteId) {
+      const siteRadios = document.querySelectorAll('input[name="site_id"]');
+      siteRadios.forEach(r => { if (r.value === siteId) r.checked = true; });
+    }
+    updateBosses();
+    // Set boss radio after rendering
+    setTimeout(function() {
+      if (bossId) {
+        const bossRadios = document.querySelectorAll('input[name="boss_id"]');
+        bossRadios.forEach(r => { if (r.value === bossId) r.checked = true; });
+        document.getElementById('hidden_boss_id').value = bossId;
+      }
+      updateEmployees();
+      // Set employee dropdown
+      if (employeeId) {
+        const empSelect = document.getElementById('employee_id');
+        empSelect.value = employeeId;
+      }
+      // Always enable dropdown if boss and site are set and there are employees
+      const empSelect = document.getElementById('employee_id');
+      if (selectedSite && selectedBoss && empSelect.options.length > 0) {
+        empSelect.disabled = false;
+      }
+    }, 0);
   });
 </script>
 {% endblock %}

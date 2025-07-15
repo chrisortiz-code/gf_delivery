@@ -5,129 +5,28 @@
 {% block header_title %}Good Food Delivery{% endblock %}
 
 {% block extra_head %}
-<style>
-    select:disabled {
-      background-color: #f0f0f0;
-      color: #888;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-    }
-
-    .product {
-      text-align: center;
-      border: 5px solid #be4272;
-      border-radius: 10px;
-      word-wrap:break-word;overflow-wrap:break-word;
-      padding: 5px;
-    }
-
-    .product img {
-      width: 100%;
-      height: auto;
-      max-height: 100px;
-      object-fit: contain;
-    }
-
-    .summary {
-      margin-top: 20px;
-      border-top: 1px dashed #999;
-      padding-top: 10px;
-    }
-
-    .line {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 5px;
-    }
-
-    .footer-buttons {
-      display: flex;
-      justify-content: center;
-      gap: 1rem;
-      margin-top: 30px;
-      flex-wrap: wrap;
-    }
-
-    .footer-buttons button {
-      padding: 10px 16px;
-      font-size: 16px;
-      border-radius: 6px;
-      border: none;
-      background-color: #be4272;
-      color: white;
-      margin: 5px;
-    }
-
-    .footer-buttons button:hover {
-      opacity: 0.8;
-    }
-
-    .quantity-controls {
-      display:flex;
-      align-items: center;
-      gap:8px;
-      justify-content: center;
-      height:60px;
-    }
-
-    .quantity-controls button {
-      padding: 4px 8px;
-      font-size: 1.2rem;
-    }
-
-    .checkout-button {
-    margin-top: 20px;
-    padding: 12px 24px;
-    font-size: 18px;
-    background-color:#5a866b;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
-    cursor: pointer;
-    transition: background-color 0.2s ease, transform 0.1s ease;
-    }
-
-    .checkout-button:hover {
-      background-color: #318a52; /* Slightly darker green */
-    }
-    
-    button:active {
-    transform: scale(0.97);
-    }
-</style>
+<link rel="stylesheet" href="/static/styles.css">
 {% endblock %}
 
 {% block content %}
 <div style="text-align:center;">
 
   <form id="orderForm" action="/checkout" method="post" onsubmit="return confirmCheckout();">
-    <div style="margin: 20px 0;">
+    <div class="site-radio-group" style="margin: 20px 0;">
       <label><b>Select Location:</b></label><br>
-      {% for site_id, location, maestro in sites %}
-        <label style="margin-right: 1em;">
-          <input type="radio" name="site_id" value="{{ site_id }}" data-maestro="{{ maestro }}" required onchange="updateEmployeeDropdown()"> {{ location }}
+      {% for site_id, location in sites %}
+        <label>
+          <input type="radio" name="site_id" value="{{ site_id }}" required onchange="updateBosses()"><span>{{ location }}</span>
         </label>
       {% endfor %}
     </div>
-    <div id="maestro-info" style="margin: 10px 0; font-style: italic; color: #666; display: none;">
-      <strong>Maestros:</strong> <span id="maestro-name"></span>
-    </div>
+    <div id="bosses-section" style="margin: 20px 0; display:none;"></div>
+    <input type="hidden" name="boss_id" id="hidden_boss_id">
     <div style="margin: 20px 0;">
       <label for="employee_id"><b>Select Employee:</b></label><br>
-      <select name="employee_id" id="employee_id" required {% if not selected_site %}disabled{% endif %}>
+      <select name="employee_id" id="employee_id" class="styled-select" required disabled>
         <option value="">-- Select Employee --</option>
-        {% for emp_id, emp_name, emp_site_id in employees %}
-        <option value="{{ emp_id }}" data-site="{{ emp_site_id }}">
-          {{ emp_name or ('Employee #' ~ emp_id) }}
-        </option>
-        {% endfor %}
       </select>
-
     </div>
     <div class="grid">
       {% for name, price, image in products %}
@@ -144,20 +43,77 @@
             <span id = "qty-{{name}}">0</span>
             <button type = "button" onclick = "changeQty('{{name}}',1)">+</button>
           </div>
-          
           <input type="hidden" name="product_{{ name }}" id = "input-{{name}}" value="0">
         </div>
       {% endfor %}
     </div>
-
     <div class="summary" id="summary"></div>
-
-<button type="submit" class="checkout-button" id="checkout-btn" disabled>Checkout</button>
+    <button type="submit" class="checkout-button" id="checkout-btn" disabled>Checkout</button>
   </form>
 {% endblock %}
 
 {% block scripts %}
 <script>
+  const siteBosses = {{ site_bosses|tojson }};
+  let selectedSite = null;
+  let selectedBoss = null;
+  function updateBosses() {
+    const siteRadios = document.querySelectorAll('input[name="site_id"]');
+    let siteId = null;
+    siteRadios.forEach(r => { if (r.checked) siteId = r.value; });
+    selectedSite = siteId;
+    const bossesSection = document.getElementById('bosses-section');
+    bossesSection.innerHTML = '';
+    document.getElementById('employee_id').innerHTML = '<option value="">-- Select Employee --</option>';
+    document.getElementById('employee_id').disabled = true;
+    document.getElementById('hidden_boss_id').value = '';
+    if (!siteId) {
+      bossesSection.style.display = 'none';
+      return;
+    }
+    const bosses = siteBosses[siteId];
+    if (!bosses || Object.keys(bosses).length === 0) {
+      bossesSection.style.display = 'none';
+      return;
+    }
+    bossesSection.style.display = 'block';
+    let html = '<div class="boss-radio-group"><label><b>Select Boss:</b></label><br>';
+    for (const bossId in bosses) {
+      html += `<label><input type=\"radio\" name=\"boss_id\" value=\"${bossId}\" onchange=\"updateEmployees()\"><span>${bosses[bossId].name}</span></label>`;
+    }
+    html += '</div>';
+    bossesSection.innerHTML = html;
+  }
+  function updateEmployees() {
+    const bossRadios = document.querySelectorAll('input[name="boss_id"]');
+    let bossId = null;
+    bossRadios.forEach(r => { if (r.checked) bossId = r.value; });
+    selectedBoss = bossId;
+    document.getElementById('hidden_boss_id').value = bossId || '';
+    const empSelect = document.getElementById('employee_id');
+    empSelect.innerHTML = '<option value="">-- Select Employee --</option>';
+    empSelect.disabled = true;
+    if (!selectedSite || !bossId) return;
+    const employees = siteBosses[selectedSite][bossId].employees;
+    for (const emp of employees) {
+      const opt = document.createElement('option');
+      opt.value = emp.id;
+      opt.textContent = emp.name;
+      empSelect.appendChild(opt);
+    }
+    empSelect.disabled = false;
+    updateCheckoutBtn();
+  }
+  function updateCheckoutBtn() {
+    const empSelect = document.getElementById('employee_id');
+    const checkoutBtn = document.getElementById('checkout-btn');
+    if (checkoutBtn) checkoutBtn.disabled = !empSelect.value;
+  }
+  document.addEventListener('DOMContentLoaded', function() {
+    updateBosses();
+    document.getElementById('employee_id').addEventListener('change', updateCheckoutBtn);
+  });
+
   const productData = {
     {% for name, price, image in products %}
       "{{ name }}" : {{ price }},
