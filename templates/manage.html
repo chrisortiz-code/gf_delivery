@@ -158,15 +158,14 @@ function onSiteChange() {
       </tr>`;
     }
     // Add new employee row
-    html += `<tr>
-      <form method="POST" action="/add_employee">
+    html += `<tr><td colspan="3">
+      <form method="POST" action="/add_employee" style="display:flex;gap:1em;align-items:center;">
         <input type="hidden" name="boss_id" value="${bossId}">
         <input type="hidden" name="site_id" value="${siteId}">
-        <td><input type="text" name="employee_name" placeholder="Enter new employee name" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" required></td>
-        <td></td>
-        <td class="actions"><button type="submit" class="add-btn">Add</button></td>
+        <input type="text" name="employee_name" placeholder="Enter new employee name" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;" required>
+        <button type="submit" class="add-btn">Add</button>
       </form>
-    </tr>`;
+    </td></tr>`;
     html += `</tbody></table></div>`;
   }
   html += `</div>`;

@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 from werkzeug.utils import secure_filename
 import re
 from flask import url_for
+import uuid
 
 
 app = Flask(__name__)
@@ -138,10 +139,8 @@ def submit_order():
         os.makedirs(signatures_dir)
     
     # Generate filename: date_site_id.png
-    timestamp = session['pending_order']['timestamp']
-    date_str = timestamp.split()[0]  # Get just the date part
+    timestamp = session['pending_order']['timestamp'].replace(" ", "_").replace(":", "-")
     employee_id = session['pending_order']['employee_id']
-    
     # Get boss_id for the employee, then site_id for the boss
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -154,9 +153,9 @@ def submit_order():
         site_result = cursor.fetchone()
         site_id = site_result[0] if site_result else "unknown"
     conn.close()
-    
-    # Create filename
-    filename = f"{date_str}_{site_id}_{employee_id}.png"
+    # Create unique filename
+    unique_id = uuid.uuid4().hex[:8]
+    filename = f"{timestamp}_{site_id}_{employee_id}_{unique_id}.png"
     filepath = os.path.join(signatures_dir, filename)
     
     # Save signature as image file
@@ -180,12 +179,21 @@ def submit_order():
          session['pending_order']['timestamp'])
     )
     conn.commit()
+    # Get boss_id and site_id for redirect
+    employee_id = session['pending_order']['employee_id']
+    cursor.execute("SELECT boss_id FROM employees WHERE id = ?", (employee_id,))
+    boss_result = cursor.fetchone()
+    boss_id = boss_result[0] if boss_result else None
+    site_id = "unknown"
+    if boss_id:
+        cursor.execute("SELECT site_id FROM bosses WHERE id = ?", (boss_id,))
+        site_result = cursor.fetchone()
+        site_id = site_result[0] if site_result else "unknown"
     conn.close()
-    
     # Clear the pending order from session
     session.pop('pending_order', None)
-    
-    return redirect("/")
+    # Redirect with site_id and boss_id as query params
+    return redirect(f"/?site_id={site_id}&boss_id={boss_id}")
 
 @app.route("/products")
 def product_manager():
@@ -394,12 +402,14 @@ def build_site_bosses(sites, bosses, employees):
 
 def parse_orders_payments(c, selected_employee, emp_ids=None):
     orders, payments, grand_total = [], [], 0
+    # Always return: (id, items, date, employee_id, order_total, signature)
     if selected_employee and selected_employee != 'all':
         c.execute("SELECT id, items, date, signature FROM orders WHERE employee_id = ? ORDER BY date DESC", (selected_employee,))
         raw_orders = c.fetchall()
         for order in raw_orders:
             order_total = parse_order_total(order[1])
             grand_total += order_total
+            # order = (id, items, date, signature)
             orders.append((order[0], order[1], order[2], selected_employee, order_total, order[3]))
         c.execute("SELECT amount, date, note FROM payments WHERE employee_id = ? ORDER BY date DESC", (selected_employee,))
         payments = c.fetchall()
@@ -410,6 +420,7 @@ def parse_orders_payments(c, selected_employee, emp_ids=None):
         for order in raw_orders:
             order_total = parse_order_total(order[1])
             grand_total += order_total
+            # order = (id, items, date, employee_id, signature)
             orders.append((order[0], order[1], order[2], order[3], order_total, order[4]))
         c.execute(f"SELECT employee_id, amount, date, note FROM payments WHERE employee_id IN ({qmarks}) ORDER BY date DESC", emp_ids)
         payments = c.fetchall()
@@ -434,52 +445,59 @@ def chart():
             if 'processed_payment_keys' not in session:
                 session['processed_payment_keys'] = []
             session['processed_payment_keys'].append(payment_key)
-            if employee_id and amount:
-                if employee_id == "all" and boss_id:
-                    conn = sqlite3.connect(DB_PATH)
-                    c = conn.cursor()
-                    c.execute("SELECT id FROM employees WHERE boss_id = ?", (boss_id,))
-                    emp_ids = [row[0] for row in c.fetchall()]
-                    total_debt = 0
-                    for emp_id in emp_ids:
-                        c.execute("SELECT items FROM orders WHERE employee_id = ?", (emp_id,))
-                        orders = c.fetchall()
-                        for order in orders:
-                            total_debt += parse_order_total(order[0])
-                    try:
-                        amount_int = int(amount)
-                    except Exception:
-                        amount_int = -1
-                    if amount_int != total_debt or total_debt == 0:
-                        error = f"All Employees payment must match the total debt for this boss (currently {total_debt})."
-                        flash(error, 'error')
-                        conn.close()
-                        return redirect(request.url)
-                    c.execute("SELECT id FROM employees WHERE boss_id = ? LIMIT 1", (boss_id,))
-                    first_emp = c.fetchone()
-                    if first_emp:
-                        timestamp = datetime.today().strftime("%Y-%m-%d %H:%M")
-                        all_note = f"ALL EMPLOYEES: {note}" if note else "ALL EMPLOYEES"
-                        c.execute("INSERT INTO payments (employee_id, amount, date, note) VALUES (?, ?, ?, ?)", (first_emp[0], amount_int, timestamp, all_note))
-                        for emp_id in emp_ids:
-                            c.execute("SELECT id, items, date FROM orders WHERE employee_id = ?", (emp_id,))
-                            orders = c.fetchall()
-                            for order_id, items, date in orders:
-                                order_total = parse_order_total(items)
-                                c.execute("""INSERT INTO profit (employee_id, original_order_id, items, total_paid, date_cleared)
-                                             VALUES (?, ?, ?, ?, DATE('now'))""", (emp_id, order_id, items, order_total))
-                                c.execute("DELETE FROM orders WHERE id = ?", (order_id,))
-                        for emp_id in emp_ids:
-                            c.execute("DELETE FROM payments WHERE employee_id = ?", (emp_id,))
-                        conn.commit()
-                        conn.close()
-                elif employee_id != "all":
-                    conn = sqlite3.connect(DB_PATH)
-                    c = conn.cursor()
+            if employee_id == "all" and boss_id:
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                c.execute("SELECT id FROM employees WHERE boss_id = ?", (boss_id,))
+                emp_ids = [row[0] for row in c.fetchall()]
+                total_orders = 0
+                for emp_id in emp_ids:
+                    c.execute("SELECT items FROM orders WHERE employee_id = ?", (emp_id,))
+                    orders = c.fetchall()
+                    for order in orders:
+                        total_orders += parse_order_total(order[0])
+                # Subtract all payments for these employees
+                total_payments = 0
+                for emp_id in emp_ids:
+                    c.execute("SELECT amount FROM payments WHERE employee_id = ?", (emp_id,))
+                    payments = c.fetchall()
+                    for payment in payments:
+                        total_payments += payment[0]
+                total_debt = total_orders - total_payments
+                try:
+                    amount_int = int(amount)
+                except Exception:
+                    amount_int = -1
+                if amount_int != total_debt or total_debt == 0:
+                    error = f"All Employees payment must match the total debt for this boss (currently {total_debt})."
+                    flash(error, 'error')
+                    conn.close()
+                    return redirect(request.url)
+                c.execute("SELECT id FROM employees WHERE boss_id = ? LIMIT 1", (boss_id,))
+                first_emp = c.fetchone()
+                if first_emp:
                     timestamp = datetime.today().strftime("%Y-%m-%d %H:%M")
-                    c.execute("INSERT INTO payments (employee_id, amount, date, note) VALUES (?, ?, ?, ?)", (employee_id, amount, timestamp, note))
+                    all_note = f"ALL EMPLOYEES: {note}" if note else "ALL EMPLOYEES"
+                    c.execute("INSERT INTO payments (employee_id, amount, date, note) VALUES (?, ?, ?, ?)", (first_emp[0], amount_int, timestamp, all_note))
+                    for emp_id in emp_ids:
+                        c.execute("SELECT id, items, date FROM orders WHERE employee_id = ?", (emp_id,))
+                        orders = c.fetchall()
+                        for order_id, items, date in orders:
+                            order_total = parse_order_total(items)
+                            c.execute("""INSERT INTO profit (employee_id, original_order_id, items, total_paid, date_cleared)
+                                         VALUES (?, ?, ?, ?, DATE('now'))""", (emp_id, order_id, items, order_total))
+                            c.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+                    for emp_id in emp_ids:
+                        c.execute("DELETE FROM payments WHERE employee_id = ?", (emp_id,))
                     conn.commit()
                     conn.close()
+            elif employee_id != "all":
+                conn = sqlite3.connect(DB_PATH)
+                c = conn.cursor()
+                timestamp = datetime.today().strftime("%Y-%m-%d %H:%M")
+                c.execute("INSERT INTO payments (employee_id, amount, date, note) VALUES (?, ?, ?, ?)", (employee_id, amount, timestamp, note))
+                conn.commit()
+                conn.close()
             return redirect(request.url)
 
     # Fetch data
@@ -523,6 +541,7 @@ def chart():
                 except Exception:
                     continue
         all_entries.append({
+            'id': order[0],  # <-- Add this line for order id
             'type': 'order',
             'employee_id': order[3],
             'employee_name': emp_names.get(str(order[3]), f'Employee #{order[3]}'),
@@ -536,13 +555,15 @@ def chart():
     for payment in payments:
         if len(payment) == 4:
             emp_id, amount, date, note = payment
+            payment_id = None  # Default if not available
         elif len(payment) == 3:
             amount, date, note = payment
             emp_id = selected_employee
+            payment_id = None
         else:
             continue
         is_all_employees = note and note.startswith("ALL EMPLOYEES")
-        all_entries.append({
+        entry = {
             'type': 'payment',
             'employee_id': emp_id,
             'employee_name': "All" if is_all_employees else emp_names.get(str(emp_id), f'Employee #{emp_id}'),
@@ -551,10 +572,17 @@ def chart():
             'note': note,
             'items': None,
             'parsed_items': []
-        })
+        }
+        # If payment id is available, add it
+        if len(payment) == 4:
+            entry['id'] = emp_id  # If you have a payment id, set it here. Otherwise, leave as is.
+        all_entries.append(entry)
         payment_total += amount
     all_entries.sort(key=lambda x: x['date'], reverse=False)
     net_total = order_total - payment_total
+
+    # Always generate a new payment_key for the form
+    payment_key = str(uuid.uuid4())
 
     return render_template("chart.html", 
         sites=sites, 
@@ -570,7 +598,8 @@ def chart():
         order_total=order_total,
         payment_total=payment_total,
         net_total=net_total,
-        error=error)
+        error=error,
+        payment_key=payment_key)
 
 @app.route("/del_order", methods = ["POST"])
 def del_order():
@@ -590,56 +619,6 @@ def del_order():
 def test():
     return render_template("test.html")
 
-@app.route("/sites")
-def view_sites():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    # Get all sites
-    cursor.execute("SELECT id, location, total_owing FROM sites")
-    sites = cursor.fetchall()
-    site_data = []
-    for site_id, location, total_owing in sites:
-        cursor.execute("SELECT id, current_owing, items, name FROM employees WHERE site_id = ?", (site_id,))
-        employees = cursor.fetchall()
-        # For each employee, get their orders
-        employees_with_orders = []
-        for emp in employees:
-            emp_id, current_owing, items, name = emp
-            # Parse items
-            parsed_items = []
-            for item in (items or '').split(","):
-                item = item.strip()
-                if ":" in item and ";" in item:
-                    try:
-                        name_price, qty = item.split(";", 1)
-                        iname, price = name_price.split(":", 1)
-                        parsed_items.append({
-                            'name': iname.strip(),
-                            'price': int(price.strip()),
-                            'qty': int(qty.strip())
-                        })
-                    except Exception:
-                        continue
-            # Get signature from orders
-            cursor.execute("SELECT signature FROM orders WHERE employee_id = ? ORDER BY date DESC LIMIT 1", (emp_id,))
-            signature_result = cursor.fetchone()
-            signature = signature_result[0] if signature_result else None
-            employees_with_orders.append({
-                'id': emp_id,
-                'name': name or f'Employee #{emp_id}',
-                'current_owing': current_owing,
-                'items': items,
-                'parsed_items': parsed_items,
-                'signature': signature
-            })
-        site_data.append({
-            'id': site_id,
-            'location': location,
-            'total_owing': total_owing,
-            'employees': employees_with_orders
-        })
-    conn.close()
-    return render_template("sites.html", sites=site_data)
 
 @app.route("/manage")
 def manage():
@@ -649,9 +628,8 @@ def manage():
     sites = cursor.fetchall()
     cursor.execute("SELECT id, name, site_id FROM bosses")
     bosses = cursor.fetchall()
-    cursor.execute("SELECT id, name, boss_id, current_owing, items FROM employees")
+    cursor.execute("SELECT id, name, boss_id, items FROM employees")
     employees = cursor.fetchall()
-    conn.close()
     # Build a structure: {site_id: {boss_id: {boss_name, employees: [...]}}}
     site_bosses = {}
     for site_id, location in sites:
@@ -659,10 +637,19 @@ def manage():
     for boss_id, boss_name, site_id in bosses:
         if site_id in site_bosses:
             site_bosses[site_id][str(boss_id)] = {'name': boss_name, 'employees': []}
-    for emp_id, emp_name, boss_id, current_owing, items in employees:
+    for emp_id, emp_name, boss_id, items in employees:
+        # Calculate current owing
+        cursor.execute("SELECT items FROM orders WHERE employee_id = ?", (emp_id,))
+        orders = cursor.fetchall()
+        order_total = sum(parse_order_total(order[0]) for order in orders)
+        cursor.execute("SELECT amount FROM payments WHERE employee_id = ?", (emp_id,))
+        payments = cursor.fetchall()
+        payment_total = sum(payment[0] for payment in payments)
+        current_owing = order_total - payment_total
         for site_id, bosses_dict in site_bosses.items():
             if str(boss_id) in bosses_dict:
                 bosses_dict[str(boss_id)]['employees'].append({'id': emp_id, 'name': emp_name, 'current_owing': current_owing, 'items': items})
+    conn.close()
     return render_template("manage.html", sites=sites, site_bosses=site_bosses)
 
 @app.route("/update_site", methods=["POST"])
@@ -848,8 +835,12 @@ def add_employee():
         return "Unauthorized", 403
     boss_id = request.form.get("boss_id")
     employee_name = request.form.get("employee_name")
+    employee_name = smart_capitalize(employee_name)
     site_id = request.form.get("site_id")
     if not boss_id or not employee_name:
+        flash("Missing boss or employee name for new employee.", "error")
+        if site_id:
+            return redirect(f"/manage?site_id={site_id}")
         return redirect("/manage")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -932,16 +923,39 @@ def profit():
     end = request.args.get("end")
     offset = int(request.args.get("offset", 0))
     limit = 50
+    site_id = request.args.get("site_id")
+    boss_id = request.args.get("boss_id")
     # Default date range: last 30 days
     if not start or not end:
         today = datetime.today().date()
         start = (today - timedelta(days=30)).isoformat()
         end = today.isoformat()
-    # Query profits in date range
-    c.execute("SELECT COUNT(*) FROM profit WHERE date_cleared BETWEEN ? AND ?", (start, end))
-    length = c.fetchone()[0]
-    c.execute("SELECT employee_id, original_order_id, items, total_paid, date_cleared FROM profit WHERE date_cleared BETWEEN ? AND ? ORDER BY date_cleared DESC LIMIT ? OFFSET ?", (start, end, limit, offset))
-    profits = c.fetchall()
+    # Get all sites and bosses for dropdowns
+    c.execute("SELECT id, location FROM sites")
+    sites = c.fetchall()
+    c.execute("SELECT id, name, site_id FROM bosses")
+    bosses = c.fetchall()
+    # Get employees for filtering
+    emp_ids = None
+    if site_id:
+        if boss_id:
+            c.execute("SELECT id FROM employees WHERE boss_id = ?", (boss_id,))
+            emp_ids = [row[0] for row in c.fetchall()]
+        else:
+            c.execute("SELECT id FROM employees WHERE boss_id IN (SELECT id FROM bosses WHERE site_id = ?)", (site_id,))
+            emp_ids = [row[0] for row in c.fetchall()]
+    # Query profits in date range, filtered by employees if needed
+    if emp_ids is not None and emp_ids:
+        qmarks = ','.join(['?']*len(emp_ids))
+        c.execute(f"SELECT COUNT(*) FROM profit WHERE date_cleared BETWEEN ? AND ? AND employee_id IN ({qmarks})", (start, end, *emp_ids))
+        length = c.fetchone()[0]
+        c.execute(f"SELECT employee_id, original_order_id, items, total_paid, date_cleared FROM profit WHERE date_cleared BETWEEN ? AND ? AND employee_id IN ({qmarks}) ORDER BY date_cleared DESC LIMIT ? OFFSET ?", (start, end, *emp_ids, limit, offset))
+        profits = c.fetchall()
+    else:
+        c.execute("SELECT COUNT(*) FROM profit WHERE date_cleared BETWEEN ? AND ?", (start, end))
+        length = c.fetchone()[0]
+        c.execute("SELECT employee_id, original_order_id, items, total_paid, date_cleared FROM profit WHERE date_cleared BETWEEN ? AND ? ORDER BY date_cleared DESC LIMIT ? OFFSET ?", (start, end, limit, offset))
+        profits = c.fetchall()
     # Get employee names for display
     c.execute("SELECT id, name FROM employees")
     emp_names = {row[0]: row[1] for row in c.fetchall()}
@@ -966,7 +980,7 @@ def profit():
                 except Exception:
                     continue
     conn.close()
-    return render_template("profit.html", profits=profits, emp_names=emp_names, start=start, end=end, offset=offset, length=length, summary=summary, full_total=full_total)
+    return render_template("profit.html", profits=profits, emp_names=emp_names, start=start, end=end, offset=offset, length=length, summary=summary, full_total=full_total, sites=sites, bosses=bosses, selected_site=site_id, selected_boss=boss_id)
 
 @app.route("/del_profit", methods=["POST"])
 def del_profit():
@@ -979,6 +993,33 @@ def del_profit():
     conn.commit()
     conn.close()
     return redirect("/profit")
+
+@app.route('/delete_owing', methods=['POST'])
+def delete_owing():
+    owing_id = request.form.get('owing_id')
+    owing_type = request.form.get('owing_type')
+    if not owing_id or not owing_type:
+        flash('Missing owing information.', 'error')
+        return redirect('/chart')
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    try:
+        if owing_type == 'order':
+            c.execute('DELETE FROM orders WHERE id = ?', (owing_id,))
+        elif owing_type == 'payment':
+            c.execute('DELETE FROM payments WHERE id = ?', (owing_id,))
+        else:
+            flash('Invalid owing type.', 'error')
+            conn.close()
+            return redirect('/chart')
+        conn.commit()
+        flash('Owing deleted.', 'success')
+    except Exception as e:
+        flash(f'Error deleting owing: {e}', 'error')
+    finally:
+        conn.close()
+    return redirect('/chart')
 
 
 if __name__ == '__main__':

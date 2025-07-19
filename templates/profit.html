@@ -31,6 +31,24 @@ tr:nth-child(even) {
 {% block content %}
 <div style="text-align: center;">
   <form method="GET" action="/profit" id="date-form" style="margin-top: 1rem">
+    <label for="site_id"><b>Location:</b></label>
+    <select name="site_id" id="site_id" onchange="onSiteChange()" style="margin-right:1em;">
+      <option value="">-- All Locations --</option>
+      {% for site_id, location in sites %}
+        <option value="{{ site_id }}" {% if site_id == selected_site %}selected{% endif %}>{{ location }}</option>
+      {% endfor %}
+    </select>
+    <span id="boss-select-span" style="display:{% if selected_site %}inline{% else %}none{% endif %};">
+      <label for="boss_id"><b>Boss:</b></label>
+      <select name="boss_id" id="boss_id" style="margin-right:1em;">
+        <option value="">-- All Bosses --</option>
+        {% for boss_id, boss_name, boss_site_id in bosses %}
+          {% if boss_site_id == selected_site %}
+            <option value="{{ boss_id }}" {% if boss_id|string == selected_boss|string %}selected{% endif %}>{{ boss_name }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+    </span>
     <label for="start">Start:</label>
     <input type="date" id="start" name="start" value="{{start}}">
     <label for="end">End:</label>
@@ -139,5 +157,18 @@ tr:nth-child(even) {
     form = document.getElementById("date-form"); 
     form.submit();
   }
+  function onSiteChange() {
+    var siteSelect = document.getElementById('site_id');
+    var bossSpan = document.getElementById('boss-select-span');
+    if (siteSelect.value) {
+      bossSpan.style.display = 'inline';
+    } else {
+      bossSpan.style.display = 'none';
+      document.getElementById('boss_id').value = '';
+    }
+  }
+  document.addEventListener('DOMContentLoaded', function() {
+    onSiteChange();
+  });
 </script>
 {% endblock %} 

@@ -6,9 +6,21 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="/static/styles.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='tom-select.css') }}">
+
 {% endblock %}
 
 {% block content %}
+<!-- Flashed messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flashes" style="display:flex; flex-direction:column; align-items:center; margin: 1.5em 0;">
+      {% for category, message in messages %}
+        <div class="flash flash-{{ category }}" style="{% if category == 'error' %}background:#e74c3c; color:white; font-size:1.3em; padding:1em 2em; border-radius:12px; max-width:600px; text-align:center; margin-bottom:1em;{% endif %}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
 <div>
 {% if selected_maestro %}
   <p>Maestros: {{ selected_maestro.split(';') | join(', ') }}</p>
@@ -19,17 +31,13 @@
       <label><b>Select Location:</b></label>
       {% for site_id, location in sites %}
         <label>
-          <input type="radio" name="site_id" value="{{ site_id }}" onchange="reloadWithSite('{{ site_id }}')"> {{ location }}
+          <input type="radio" name="site_id" value="{{ site_id }}" {% if site_id == selected_site %}checked{% endif %}> {{ location }}
         </label>
       {% endfor %}
     </div>
-    <div id="bosses-section"></div>
-    <div>
-      <label for="employee_id"><b>Select Employee:</b></label>
-      <select name="employee_id" id="employee_id" onchange="submitWithBoss()">
-        <option value="">-- Select Employee --</option>
-      </select>
-    </div>
+    <div id="bosses-section" style="margin: 1em 0;"></div>
+    <div id="employees-section" style="margin: 1em 0;"></div>
+    <!-- Filter button removed for auto-submit -->
   </form>
 </div>
 
@@ -44,6 +52,7 @@
         <th>Items / Note</th>
         <th>Total / Amount</th>
         <th>Signature</th>
+        <th>Delete</th>
       </tr>
     </thead>
     <tbody>
@@ -73,24 +82,33 @@
           <td>
             {% if entry.type == 'order' and entry.signature %}
               <img src="{{ entry.signature }}" alt="Signature" style="max-width: 80px; max-height: 40px; border: 1px solid #ccc;">
-            
             {% else %}
               <em>-</em>
             {% endif %}
+          </td>
+          <td>
+            <form method="post" action="/delete_owing" onsubmit="return confirmDeleteOwing();" style="display:inline;">
+              <input type="hidden" name="owing_id" value="{{ entry.id if entry.id is defined else '' }}">
+              <input type="hidden" name="owing_type" value="{{ entry.type if entry.type is defined else '' }}">
+              <button type="submit" class="delete-btn" style="color:#fff; background:#e74c3c; border:none; border-radius:10px; padding:4px 10px; cursor:pointer;">-</button>
+            </form>
           </td>
         </tr>
       {% endfor %}
       <tr style="font-weight:bold; border-top:2px solid #181818;">
         <td colspan="5" style="text-align:right;">Debit (Orders)</td>
         <td>${{ order_total }}</td>
+        <td></td>
       </tr>
       <tr style="font-weight:bold;">
         <td colspan="5" style="text-align:right;">Credit (Payments)</td>
         <td>-${{ payment_total }}</td>
+        <td></td>
       </tr>
       <tr style="font-weight:bold; background:#f0f0f0;">
         <td colspan="5" style="text-align:right;">Owed</td>
         <td>${{ net_total }}</td>
+        <td></td>
       </tr>
     </tbody>
   </table>
@@ -116,112 +134,118 @@
   </form>
 {% endif %}
 
-
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  const siteBosses = {{ site_bosses|tojson }};
-  let selectedSite = null;
-  let selectedBoss = null;
-  function updateBosses() {
-    const siteRadios = document.querySelectorAll('input[name="site_id"]');
-    let siteId = null;
-    siteRadios.forEach(r => { if (r.checked) siteId = r.value; });
-    selectedSite = siteId;
-    const bossesSection = document.getElementById('bosses-section');
-    bossesSection.innerHTML = '';
-    document.getElementById('employee_id').innerHTML = '<option value="all">All Employees</option>';
-    if (!siteId) {
-      bossesSection.style.display = 'none';
-      return;
-    }
-    const bosses = siteBosses[siteId];
-    if (!bosses || Object.keys(bosses).length === 0) {
-      bossesSection.style.display = 'none';
-      return;
-    }
-    bossesSection.style.display = 'block';
-    let html = '<div><b>Select Boss:</b><br>';
-    let first = true;
-    for (const bossId in bosses) {
-      html += `<label><input type="radio" name="boss_id" value="${bossId}" onchange="submitWithBoss()"${first ? ' checked' : ''}> ${bosses[bossId].name}</label>`;
-      first = false;
-    }
-    html += '</div>';
-    bossesSection.innerHTML = html;
-    // After rendering, call updateEmployees() for the checked boss
-    updateEmployees();
+const siteBosses = {{ site_bosses|tojson|safe }};
+const selectedSite = {{ selected_site|tojson|safe }};
+const selectedBoss = {{ selected_boss|tojson|safe }};
+const selectedEmployee = {{ selected_employee|tojson|safe }};
+
+function renderBosses(siteId) {
+  const bossesSection = document.getElementById('bosses-section');
+  bossesSection.innerHTML = '';
+  if (!siteId || !siteBosses[siteId]) return;
+  const bosses = siteBosses[siteId];
+  let html = '<label><b>Select Boss:</b></label><br>';
+  for (const bossId in bosses) {
+    html += `<label><input type="radio" name="boss_id" value="${bossId}"${bossId === selectedBoss ? ' checked' : ''}> ${bosses[bossId].name}</label> `;
   }
-  function updateEmployees() {
-    const bossRadios = document.querySelectorAll('input[name="boss_id"]');
-    let bossId = null;
-    bossRadios.forEach(r => { if (r.checked) bossId = r.value; });
-    selectedBoss = bossId;
-    const empSelect = document.getElementById('employee_id');
-    empSelect.innerHTML = '<option value="all">All Employees</option>';
-    // Only disable if no site or boss is selected
-    if (!selectedSite || !bossId) {
-      empSelect.disabled = true;
-      return;
-    }
-    const employees = siteBosses[selectedSite][bossId].employees;
-    for (const emp of employees) {
-      const opt = document.createElement('option');
-      opt.value = emp.id;
-      opt.textContent = emp.name;
-      empSelect.appendChild(opt);
-    }
-    empSelect.disabled = false;
-    // Set the dropdown to the employee_id from the URL if present
-    const params = new URLSearchParams(window.location.search);
-    const employeeId = params.get('employee_id') || 'all';
-    empSelect.value = employeeId;
+  bossesSection.innerHTML = html;
+}
+
+function renderEmployees(siteId, bossId, resetSelected) {
+  const employeesSection = document.getElementById('employees-section');
+  employeesSection.innerHTML = '';
+  if (!siteId || !bossId || !siteBosses[siteId] || !siteBosses[siteId][bossId]) return;
+  const employees = siteBosses[siteId][bossId].employees;
+  let html = '<label for="employee_id"><b>Select Employee:</b></label> ';
+  html += '<select name="employee_id" id="employee_id">';
+  let selected = resetSelected ? 'all' : selectedEmployee;
+  html += `<option value="all"${String(selected) === 'all' ? ' selected' : ''}>All Employees</option>`;
+  for (const emp of employees) {
+    html += `<option value="${emp.id}"${String(emp.id) === String(selected) ? ' selected' : ''}>${emp.name}</option>`;
   }
-  function submitWithBoss() {
-    // Just submit the form as-is, do not force employee_id to 'all'
-    document.getElementById('chart-filter-form').submit();
+  html += '</select>';
+  employeesSection.innerHTML = html;
+
+  // Destroy previous TomSelect if exists
+  if (window.employeeTomSelect) {
+    window.employeeTomSelect.destroy();
+    window.employeeTomSelect = null;
   }
-  function reloadWithSite(siteId) {
-    window.location.href = '/chart?site_id=' + encodeURIComponent(siteId);
-  }
-  document.addEventListener('DOMContentLoaded', function() {
-    // Read query params
-    const params = new URLSearchParams(window.location.search);
-    const siteId = params.get('site_id');
-    const bossId = params.get('boss_id');
-    const employeeId = params.get('employee_id');
-    // Set site radio
-    if (siteId) {
-      const siteRadios = document.querySelectorAll('input[name="site_id"]');
-      siteRadios.forEach(r => { if (r.value === siteId) r.checked = true; });
-    }
-    updateBosses();
-    // Set boss radio after rendering
-    setTimeout(function() {
-      if (bossId) {
-        const bossRadios = document.querySelectorAll('input[name="boss_id"]');
-        bossRadios.forEach(r => { if (r.value === bossId) r.checked = true; });
-      }
-      // Always update employees after boss is set
-      updateEmployees();
-      // Set employee dropdown
-      if (employeeId) {
-        const empSelect = document.getElementById('employee_id');
-        empSelect.value = employeeId;
-      }
-      // Always enable dropdown if boss and site are set and there are employees
-      const empSelect = document.getElementById('employee_id');
-      if (siteId && bossId && empSelect.options.length > 0) {
-        empSelect.disabled = false;
-      }
-      // If boss_id is missing, auto-submit the form to select the first boss and all employees
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('site_id') && !params.get('boss_id')) {
+  // Enhance with TomSelect
+  const empSelect = document.getElementById('employee_id');
+  if (empSelect) {
+    window.employeeTomSelect = new TomSelect(empSelect, {
+      create: false,
+      sortField: { field: "text", direction: "asc" },
+      onChange: function(value) {
         document.getElementById('chart-filter-form').submit();
       }
-    }, 0);
+    });
+    if (selected) window.employeeTomSelect.setValue(selected, true);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  // Initial render
+  const siteRadioEls = document.querySelectorAll('input[name="site_id"]');
+  let currentSite = selectedSite;
+  let currentBoss = selectedBoss;
+
+  if (currentSite) {
+    renderBosses(currentSite);
+    if (currentBoss) {
+      renderEmployees(currentSite, currentBoss, false);
+    }
+  }
+
+  siteRadioEls.forEach(radio => {
+    radio.addEventListener('change', function () {
+      renderBosses(this.value);
+      document.getElementById('employees-section').innerHTML = '';
+      document.getElementById('chart-filter-form').submit(); // <-- Add this line
+    });
   });
+
+  // Delegate boss change
+  document.getElementById('bosses-section').addEventListener('change', function(e) {
+    if (e.target.name === 'boss_id') {
+      renderEmployees(document.querySelector('input[name="site_id"]:checked').value, e.target.value, true);
+      // Auto-submit if 'All Employees' is the default
+      const empSelect = document.getElementById('employee_id');
+      if (empSelect && empSelect.value === 'all') {
+        document.getElementById('chart-filter-form').submit();
+      }
+    }
+  });
+
+  // Auto-submit on employee change
+  document.getElementById('employees-section').addEventListener('change', function(e) {
+    if (e.target.id === 'employee_id') {
+      document.getElementById('chart-filter-form').submit();
+    }
+  });
+});
+
+function confirmDeleteOwing() {
+  return confirm("Are you sure you want to delete this owing? This action cannot be undone.");
+}
+
 </script>
+<style>
+.ts-wrapper, .ts-control {
+  width: 40% !important;
+  min-width: 200px;
+  margin: 0 auto !important;
+}
+.ts-input {
+  width: 100% !important;
+}
+</style>
+<script src="{{ url_for('static', filename='js/tom-select.min.js') }}"></script>
+
 {% endblock %}
