@@ -89,35 +89,86 @@
       }
       html += '</div>';
       bossesSection.innerHTML = html;
+      
+      // Add event listeners to the newly created boss radio buttons
+      const bossRadios = bossesSection.querySelectorAll('input[name="boss_id"]');
+      bossRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+          hiddenBoss.value = this.value;
+          // Get the current site ID from the checked radio button
+          const currentSiteId = document.querySelector('input[name="site_id"]:checked')?.value;
+          renderEmployees(currentSiteId, this.value, null);
+        });
+      });
     }
 
     function renderEmployees(siteId, bossId, selected) {
       const empContainer = document.getElementById('employee-select-container');
-      empSelect.innerHTML = '<option value="">-- Select Employee --</option>';
-      empSelect.disabled = true;
+      
       if (!siteId || !bossId) {
         empContainer.hidden = true;
-        if (employeeTomSelect) { employeeTomSelect.destroy(); employeeTomSelect = null; }
+        if (employeeTomSelect) { 
+          employeeTomSelect.clear();
+          employeeTomSelect.destroy(); 
+          employeeTomSelect = null; 
+        }
         return;
       }
+      
       empContainer.hidden = false;
+      
+      // Get new employees
       const employees = siteBosses[siteId][bossId].employees;
-      for (const emp of employees) {
-        const opt = document.createElement('option');
-        opt.value = emp.id;
-        opt.textContent = emp.name;
-        empSelect.appendChild(opt);
+      
+      // If TomSelect exists, refresh its options
+      if (employeeTomSelect) {
+        // Clear all options
+        employeeTomSelect.clear();
+        employeeTomSelect.clearOptions();
+        
+        // Add the default option first
+        employeeTomSelect.addOption({
+          value: '',
+          text: '-- Select Employee --'
+        });
+        
+        // Add new employee options
+        employees.forEach(emp => {
+          employeeTomSelect.addOption({
+            value: emp.id.toString(),
+            text: emp.name
+          });
+        });
+        
+        // Set the default option as selected
+        employeeTomSelect.setValue('', true);
+      } else {
+        // Create new TomSelect instance if it doesn't exist
+        // Clear existing options
+        empSelect.innerHTML = '<option value="">-- Select Employee --</option>';
+        
+        // Add new options to the select element
+        for (const emp of employees) {
+          const opt = document.createElement('option');
+          opt.value = emp.id;
+          opt.textContent = emp.name;
+          empSelect.appendChild(opt);
+        }
+        
+        empSelect.disabled = false;
+        
+        employeeTomSelect = new TomSelect(empSelect, {
+          create: false,
+          sortField: { field: "text", direction: "asc" },
+          onChange: function(value) { updateCheckoutBtn(); }
+        });
       }
-      empSelect.disabled = false;
-      // Destroy previous TomSelect if exists
-      if (employeeTomSelect) { employeeTomSelect.destroy(); employeeTomSelect = null; }
-      // Enhance with TomSelect
-      employeeTomSelect = new TomSelect(empSelect, {
-        create: false,
-        sortField: { field: "text", direction: "asc" },
-        onChange: function(value) { updateCheckoutBtn(); }
-      });
-      if (selected) employeeTomSelect.setValue(selected, true);
+      
+      // Set selected value if provided
+      if (selected) {
+        employeeTomSelect.setValue(selected, true);
+      }
+      
       updateCheckoutBtn();
     }
 
@@ -129,13 +180,7 @@
       });
     });
 
-    bossesSection.addEventListener('change', function(e) {
-      if (e.target.name === 'boss_id') {
-        hiddenBoss.value = e.target.value;
-        const siteId = document.querySelector('input[name="site_id"]:checked')?.value;
-        renderEmployees(siteId, e.target.value, null);
-      }
-    });
+    // Removed the old event delegation since we now add direct listeners to each radio button
 
     empSelect.addEventListener('change', function() {
       updateCheckoutBtn();

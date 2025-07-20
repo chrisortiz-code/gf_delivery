@@ -658,20 +658,20 @@ def update_site():
         return "Unauthorized", 403
     
     site_id = request.form.get("site_id")
-    location = request.form.get("location")
+    new_location = request.form.get("new_location")
     
-    # Collect all maestro inputs (all with name 'maestro')
-    maestro_inputs = request.form.getlist("maestro")
-    maestro_inputs = [m.strip() for m in maestro_inputs if m.strip()]
-    maestro = ";".join(maestro_inputs)
+    if not site_id or not new_location:
+        flash("Missing site ID or new location name.", "error")
+        return redirect("/manage")
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("UPDATE sites SET location = ?, maestro = ? WHERE id = ?", (location, maestro, site_id))
+    cursor.execute("UPDATE sites SET location = ? WHERE id = ?", (new_location, site_id))
     conn.commit()
     conn.close()
     
-    return redirect("/manage")
+    flash(f"Site location updated to: {new_location}", "success")
+    return redirect(f"/manage?site_id={site_id}")
 
 @app.route("/delete_site", methods=["POST"])
 def delete_site():
@@ -737,18 +737,32 @@ def delete_employee():
         return redirect("/manage")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # Prevent delete if employee has current_owing > 0
+    
+    # Check current_owing field
     cursor.execute("SELECT current_owing FROM employees WHERE id = ?", (employee_id,))
     row = cursor.fetchone()
     if row and row[0] and int(row[0]) > 0:
         conn.close()
-        flash("Cannot delete employee: employee still has outstanding owings.", "error")
+        flash(f"Cannot delete employee: employee still has outstanding owings of ${row[0]}.", "error")
         if site_id:
             return redirect(f"/manage?site_id={site_id}")
         return redirect("/manage")
+    
+    # Also check for any outstanding orders (more reliable)
+    cursor.execute("SELECT COUNT(*) FROM orders WHERE employee_id = ?", (employee_id,))
+    order_count = cursor.fetchone()[0]
+    if order_count > 0:
+        conn.close()
+        flash(f"Cannot delete employee: employee has {order_count} outstanding order(s). Clear all orders first.", "error")
+        if site_id:
+            return redirect(f"/manage?site_id={site_id}")
+        return redirect("/manage")
+    
     cursor.execute("DELETE FROM employees WHERE id = ?", (employee_id,))
     conn.commit()
     conn.close()
+    
+    flash("Employee deleted successfully.", "success")
     if site_id:
         return redirect(f"/manage?site_id={site_id}")
     return redirect("/manage")
@@ -796,17 +810,32 @@ def delete_boss():
         return redirect("/manage")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # Only allow delete if no employees for this boss
+    
+    # Check if boss has any employees
     cursor.execute("SELECT COUNT(*) FROM employees WHERE boss_id = ?", (boss_id,))
-    if cursor.fetchone()[0] > 0:
+    employee_count = cursor.fetchone()[0]
+    if employee_count > 0:
         conn.close()
-        flash("Cannot delete boss: there are still employees assigned. Move or delete all employees first.", "error")
+        flash(f"Cannot delete boss: there are {employee_count} employee(s) assigned. Move or delete all employees first.", "error")
         if site_id:
             return redirect(f"/manage?site_id={site_id}")
         return redirect("/manage")
+    
+    # Check if boss has employees with outstanding debts
+    cursor.execute("SELECT COUNT(*) FROM employees WHERE boss_id = ? AND current_owing > 0", (boss_id,))
+    owing_count = cursor.fetchone()[0]
+    if owing_count > 0:
+        conn.close()
+        flash(f"Cannot delete boss: there are {owing_count} employee(s) with outstanding debts. Clear all debts first.", "error")
+        if site_id:
+            return redirect(f"/manage?site_id={site_id}")
+        return redirect("/manage")
+    
     cursor.execute("DELETE FROM bosses WHERE id = ?", (boss_id,))
     conn.commit()
     conn.close()
+    
+    flash("Boss deleted successfully.", "success")
     if site_id:
         return redirect(f"/manage?site_id={site_id}")
     return redirect("/manage")
@@ -863,9 +892,24 @@ def update_bosses():
                 # Delete boss if name is empty
                 conn = sqlite3.connect(DB_PATH)
                 c = conn.cursor()
+                
+                # Check if boss has any employees
+                c.execute("SELECT COUNT(*) FROM employees WHERE boss_id = ?", (boss_id,))
+                employee_count = c.fetchone()[0]
+                if employee_count > 0:
+                    conn.close()
+                    flash(f"Cannot delete boss: there are {employee_count} employee(s) assigned. Move or delete all employees first.", "error")
+                    return redirect(url_for("manage", site_id=site_id))
+                
+                # Check if boss has employees with outstanding debts
+                c.execute("SELECT COUNT(*) FROM employees WHERE boss_id = ? AND current_owing > 0", (boss_id,))
+                owing_count = c.fetchone()[0]
+                if owing_count > 0:
+                    conn.close()
+                    flash(f"Cannot delete boss: there are {owing_count} employee(s) with outstanding debts. Clear all debts first.", "error")
+                    return redirect(url_for("manage", site_id=site_id))
+                
                 c.execute("DELETE FROM bosses WHERE id = ?", (boss_id,))
-                # Optionally, handle employees under this boss (e.g., delete or reassign)
-                c.execute("DELETE FROM employees WHERE boss_id = ?", (boss_id,))
                 conn.commit()
                 conn.close()
             else:

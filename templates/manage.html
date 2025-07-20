@@ -101,10 +101,24 @@ function onSiteChange() {
   }
   // Show bosses and employees for selected site
   const bosses = siteBosses[siteId];
+  const siteLocation = sites.find(s => s[0] === siteId)?.[1] || '';
   let html = '';
-  // Bosses row at the top
-  html += `<div class="site-section"><div class="site-title" style="display:flex;align-items:center;gap:1em;"><span style="font-weight:bold;">Bosses:</span>`;
-  html += `<form method="POST" action="/update_bosses" style="display:flex;align-items:center;gap:0.5em;flex-wrap:wrap;">`;
+  
+  // Single site section containing everything
+  html += `<div class="site-section">
+    <div class="site-title">Site: <b>${siteLocation}</b></div>
+    
+    <!-- Site rename form -->
+    <form method="POST" action="/update_site" style="display:flex;align-items:center;gap:1em;justify-content:center;margin-bottom:1rem;">
+      <label style="font-weight:bold;">Rename Site:</label>
+      <input type="text" name="new_location" value="${siteLocation}" style="padding:4px; border-radius:4px; border:1px solid #ccc; min-width:200px;">
+      <input type="hidden" name="site_id" value="${siteId}">
+      <button type="submit" class="edit-btn">Update Site</button>
+    </form>
+    
+    <!-- Bosses section -->
+    <div class="site-title" style="text-align:center;margin-bottom:1rem;">Bosses</div>
+    <form method="POST" action="/update_bosses" style="display:flex;align-items:center;gap:0.5em;flex-wrap:wrap;justify-content:center;margin-bottom:2rem;">`;
   for (const bossId in bosses) {
     const boss = bosses[bossId];
     html += `
@@ -120,13 +134,16 @@ function onSiteChange() {
       <input type="text" name="boss_name_new" placeholder="New Boss Name" class="maestro-input" style="min-width:100px;">
     </div>
     <input type="hidden" name="site_id" value="${siteId}">
-    <button type="submit" class="edit-btn">Update</button>
-  </form>`;
-  html += `</div>`;
+    <button type="submit" class="edit-btn">Update Bosses</button>
+  </form>
+  
+  <!-- Employees section -->
+  <div class="site-title" style="text-align:center;margin-bottom:1rem;">Employees</div>`;
+  
   // Now show each boss's employees
   for (const bossId in bosses) {
     const boss = bosses[bossId];
-    html += `<div style="margin-top:1.5em;">
+    html += `<div style="margin-bottom:2rem;">
       <div class="site-title">Boss: <b>${boss.name}</b></div>
       <table><thead><tr><th>Employee Name</th><th>Current Owing</th><th>Actions</th></tr></thead><tbody>`;
     for (const emp of boss.employees) {
@@ -134,11 +151,11 @@ function onSiteChange() {
         <td><input type="text" value="${emp.name}" style="width:100%; padding:4px; border:1px solid #ccc; border-radius:4px;"></td>
         <td>${emp.current_owing}</td>
         <td class="actions">
-          <form method="POST" action="/update_employee" style="display:inline;">
+          <form method="POST" action="/update_employee" style="display:inline;" onsubmit="return updateEmployeeName(this, '${emp.id}')">
             <input type="hidden" name="employee_id" value="${emp.id}">
             <input type="hidden" name="boss_id" value="${bossId}">
             <input type="hidden" name="site_id" value="${siteId}">
-            <input type="hidden" name="employee_name" value="${emp.name}">
+            <input type="hidden" name="employee_name" id="emp_name_${emp.id}" value="${emp.name}">
             <button type="submit" class="edit-btn">Update</button>
           </form>
           <form method="POST" action="/delete_employee" style="display:inline;">
@@ -181,6 +198,17 @@ function addMaestroFieldNew() {
   input.placeholder = 'Boss';
   input.style.marginRight = '5px';
   container.insertBefore(input, container.querySelector('.add-maestro-btn'));
+}
+
+function updateEmployeeName(form, employeeId) {
+  // Get the employee name from the input field in the same row
+  const row = form.closest('tr');
+  const nameInput = row.querySelector('input[type="text"]');
+  const hiddenInput = document.getElementById('emp_name_' + employeeId);
+  if (nameInput && hiddenInput) {
+    hiddenInput.value = nameInput.value;
+  }
+  return true;
 }
 document.addEventListener('DOMContentLoaded', function() {
   // Set dropdown to site_id from query string if present
