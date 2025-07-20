@@ -940,19 +940,36 @@ def add_site():
     
     location = request.form.get("location")
     
-    # Collect all maestro inputs (all with name 'maestro')
-    maestro_inputs = request.form.getlist("maestro")
-    maestro_inputs = [m.strip() for m in maestro_inputs if m.strip()]
-    maestro = ";".join(maestro_inputs)
+    # Collect all boss inputs (all with name 'maestro')
+    boss_inputs = request.form.getlist("maestro")
+    boss_inputs = [b.strip() for b in boss_inputs if b.strip()]
+    
+    if not location or not boss_inputs:
+        flash("Location and at least one boss are required.", "error")
+        return redirect("/manage")
     
     # Generate a random site ID
     site_id = rand_str(8)
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO sites (id, location, maestro) VALUES (?, ?, ?)", (site_id, location, maestro))
-    conn.commit()
-    conn.close()
+    
+    try:
+        # Insert the site
+        cursor.execute("INSERT INTO sites (id, location) VALUES (?, ?)", (site_id, location))
+        
+        # Insert the bosses
+        for boss_name in boss_inputs:
+            cursor.execute("INSERT INTO bosses (name, site_id) VALUES (?, ?)", (boss_name, site_id))
+        
+        conn.commit()
+        flash(f"Site '{location}' added successfully with {len(boss_inputs)} boss(es).", "success")
+        
+    except Exception as e:
+        conn.rollback()
+        flash(f"Error adding site: {e}", "error")
+    finally:
+        conn.close()
     
     return redirect("/manage")
 
