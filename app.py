@@ -681,35 +681,86 @@ def delete_site():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        
         # Check if site exists
         cursor.execute("SELECT id, location FROM sites WHERE id = ?", (site_id,))
         site = cursor.fetchone()
         if not site:
-            return f"Site {site_id} not found", 404
-        # Get all employees for this site
-        cursor.execute("SELECT id FROM employees WHERE site_id = ?", (site_id,))
-        employees = cursor.fetchall()
-        # Check for outstanding orders for any employee
-        for emp in employees:
-            emp_id = emp[0]
-            cursor.execute("SELECT COUNT(*) FROM orders WHERE employee_id = ?", (emp_id,))
-            if cursor.fetchone()[0] > 0:
-                conn.close()
-                flash("Cannot delete site: there are still outstanding orders (debts) for this site.", "error")
-                return redirect("/manage")
-        # Delete all orders for employees at this site
-        for emp in employees:
-            emp_id = emp[0]
-            cursor.execute("DELETE FROM orders WHERE employee_id = ?", (emp_id,))
-        # Delete all employees for this site
-        cursor.execute("DELETE FROM employees WHERE site_id = ?", (site_id,))
-        # Then delete the site
+            flash(f"Site {site_id} not found", "error")
+            return redirect("/manage")
+        
+        # Check if we're using the new schema (bosses table exists)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='bosses'")
+        has_bosses_table = cursor.fetchone() is not None
+        
+        if has_bosses_table:
+            # New schema: employees have boss_id
+            # Get all bosses for this site
+            cursor.execute("SELECT id FROM bosses WHERE site_id = ?", (site_id,))
+            bosses = cursor.fetchall()
+            
+            # Get all employees for this site (through bosses)
+            employee_ids = []
+            for boss in bosses:
+                boss_id = boss[0]
+                cursor.execute("SELECT id FROM employees WHERE boss_id = ?", (boss_id,))
+                employees = cursor.fetchall()
+                employee_ids.extend([emp[0] for emp in employees])
+            
+            # Check for outstanding orders for any employee
+            for emp_id in employee_ids:
+                cursor.execute("SELECT COUNT(*) FROM orders WHERE employee_id = ?", (emp_id,))
+                if cursor.fetchone()[0] > 0:
+                    conn.close()
+                    flash("Cannot delete site: there are still outstanding orders (debts) for this site.", "error")
+                    return redirect("/manage")
+            
+            # Delete all orders for employees at this site
+            for emp_id in employee_ids:
+                cursor.execute("DELETE FROM orders WHERE employee_id = ?", (emp_id,))
+            
+            # Delete all employees for this site
+            for boss in bosses:
+                boss_id = boss[0]
+                cursor.execute("DELETE FROM employees WHERE boss_id = ?", (boss_id,))
+            
+            # Delete all bosses for this site
+            cursor.execute("DELETE FROM bosses WHERE site_id = ?", (site_id,))
+            
+        else:
+            # Old schema: employees have site_id directly
+            # Get all employees for this site
+            cursor.execute("SELECT id FROM employees WHERE site_id = ?", (site_id,))
+            employees = cursor.fetchall()
+            employee_ids = [emp[0] for emp in employees]
+            
+            # Check for outstanding orders for any employee
+            for emp_id in employee_ids:
+                cursor.execute("SELECT COUNT(*) FROM orders WHERE employee_id = ?", (emp_id,))
+                if cursor.fetchone()[0] > 0:
+                    conn.close()
+                    flash("Cannot delete site: there are still outstanding orders (debts) for this site.", "error")
+                    return redirect("/manage")
+            
+            # Delete all orders for employees at this site
+            for emp_id in employee_ids:
+                cursor.execute("DELETE FROM orders WHERE employee_id = ?", (emp_id,))
+            
+            # Delete all employees for this site
+            cursor.execute("DELETE FROM employees WHERE site_id = ?", (site_id,))
+        
+        # Finally delete the site
         cursor.execute("DELETE FROM sites WHERE id = ?", (site_id,))
+        
         conn.commit()
         conn.close()
+        
+        flash(f"Site '{site[1]}' deleted successfully.", "success")
         return redirect("/manage")
+        
     except Exception as e:
-        return f"Error deleting site: {e}", 500
+        flash(f"Error deleting site: {e}", "error")
+        return redirect("/manage")
 
 @app.route("/update_employee", methods=["POST"])
 def update_employee():
