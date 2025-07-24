@@ -1,6 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Edit Products{% endblock %}
 {% block content %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div style="max-width:600px;margin:1em auto;">
+  {% for category, message in messages %}
+  <div
+    style="padding: 1em; border-radius: 6px; margin-bottom: 1em; color: #fff; background: {% if category == 'error' %}#e74c3c{% else %}#5a866b{% endif %}; font-weight: bold;">
+    {{ message }}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
 <h2 style="text-align: center; margin-bottom: 20px;">Categories</h2>
 <form id="products-form" method="POST" action="/products/bulk_update" enctype="multipart/form-data"
   style="max-width: 900px; margin: 0 auto;">

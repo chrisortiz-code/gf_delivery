@@ -15,8 +15,21 @@ import uuid
 
 app = Flask(__name__)
 DB_PATH = "Databases/good_food.db"
-
+print("hi")
 UPLOAD_FOLDER = "static/images"
+
+# Add this new function to check for duplicate product names
+def check_duplicate_product_name(name, exclude_id=None):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    if exclude_id:
+        cursor.execute("SELECT id FROM products WHERE LOWER(name) = ? AND id != ?", (name.lower(), exclude_id))
+    else:
+        cursor.execute("SELECT id FROM products WHERE LOWER(name) = ?", (name.lower(),))
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
+
 @app.errorhandler(500)
 def internal_error(error):
     return render_template('500.html', error=error), 500
@@ -216,13 +229,22 @@ def bulk_update_products():
     positions = request.form.getlist('position')
     # For file uploads, use request.files.getlist for all images
     images = request.files.getlist('image')
+
+    for idx, prod_id in enumerate(ids):
+        name = smart_capitalize(names[idx])
+        if check_duplicate_product_name(name, exclude_id=prod_id):
+            conn.close()
+            flash(f"Product name '{name}' already exists. Product names must be unique.", "error")
+            return redirect("/products")
+        
+
     for idx, prod_id in enumerate(ids):
         name = names[idx]
         name = smart_capitalize(name)
         raw_price = prices[idx].strip()
-        clean_price = re.sub(r'[^\d]', '', raw_price)
         try:
-            price = int(clean_price)
+            clean_price = re.sub(r'[^\d-]', '', raw_price)  # Keep digits and minus sign
+            price = int(clean_price)  # Convert to integer, allows negative
         except ValueError:
             price = 0
         position = int(positions[idx]) if positions[idx].isdigit() else idx + 1
@@ -256,11 +278,15 @@ def delete_product():
 def add_product():
     name = request.form["name"]
     name = smart_capitalize(name)
+
+    if check_duplicate_product_name(name):
+        flash(f"Product name '{name}' already exists. Product names must be unique.", "error")
+        return redirect("/products")
     import re
     raw_price = request.form.get('price', '').strip()
-    clean_price = re.sub(r'[^\d]', '', raw_price)
     try:
-        price = int(clean_price)
+        clean_price = re.sub(r'[^\d-]', '', raw_price)  # Keep digits and minus sign
+        price = int(clean_price)  # Convert to integer, allows negative
     except ValueError:
         price = 0
     image = request.files.get("image")
